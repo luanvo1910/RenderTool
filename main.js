@@ -5,6 +5,7 @@ const Store = require('electron-store');
 const fontList = require('font-list');
 const fs = require('fs');
 const os = require('os');
+const { autoUpdater } = require('electron-updater');
 
 const store = new Store();
 let mainWindow;
@@ -26,7 +27,14 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  
+  // Khi ứng dụng đã sẵn sàng, tự động kiểm tra cập nhật
+  // Nó sẽ tự tải về trong nền và thông báo cho người dùng khi sẵn sàng cài đặt
+  autoUpdater.checkForUpdatesAndNotify();
+});
+
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
@@ -98,7 +106,6 @@ ipcMain.handle('cookies:update', async () => {
   }
 });
 
-// Hàm xử lý chính
 ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
   const resourcesPath = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
   const pythonScriptPath = path.join(resourcesPath, 'editor.py');
@@ -112,16 +119,19 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
     '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
   ], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   
-  // Phân loại log và tiến trình
   pythonProcess.stdout.on('data', data => {
-    const logLine = data.toString('utf8').trim();
-    if (logLine.startsWith('PROGRESS:')) {
-      const parts = logLine.split(':');
-      const type = parts[1]; // DOWNLOAD hoặc RENDER
-      const value = parseFloat(parts[2]);
-      mainWindow.webContents.send('process:progress', { type, value });
-    } else if (logLine) { // Chỉ gửi nếu log không rỗng
-      mainWindow.webContents.send('process:log', logLine);
+    const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
+    for (const line of lines) {
+      const logLine = line.trim();
+      if (!logLine) continue;
+      if (logLine.startsWith('PROGRESS:')) {
+        const parts = logLine.split(':');
+        const type = parts[1];
+        const value = parseFloat(parts[2]);
+        mainWindow.webContents.send('process:progress', { type, value });
+      } else {
+        mainWindow.webContents.send('process:log', logLine);
+      }
     }
   });
   
@@ -139,7 +149,7 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
       mainWindow.webContents.send('process:cookie-required');
     }
     mainWindow.webContents.send('process:log', `--- Tiến trình kết thúc với mã ${code} ---`);
-    mainWindow.webContents.send('process:progress', { type: 'DONE', value: 100 }); // Gửi tín hiệu hoàn thành
+    mainWindow.webContents.send('process:progress', { type: 'DONE', value: 100 });
     if (fs.existsSync(layoutFilePath)) {
       fs.unlinkSync(layoutFilePath);
     }

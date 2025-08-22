@@ -1,6 +1,6 @@
 {
   "name": "project-rb",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Ứng dụng tự động cắt và dựng video từ YouTube",
   "main": "main.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "start": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
     "build:renderer": "npm run build --prefix renderer",
     "build:electron": "electron-builder",
-    "build": "npm run build:renderer && npm run build:electron"
+    "build": "npm run build:renderer && npm run build:electron",
+    "publish": "npm run build && electron-builder --publish always"
   },
   "keywords": [],
   "author": "LuanVo",
@@ -22,11 +23,12 @@
   },
   "dependencies": {
     "electron-store": "^7.0.3",
+    "electron-updater": "^6.6.2",
     "font-list": "^1.5.1"
   },
   "build": {
-    "appId": "com.luanvo.projectrb",
-    "productName": "Project RB Video Creator",
+    "appId": "com.luanvo.rendertool",
+    "productName": "RenderTool",
     "extraResources": [
       {
         "from": "resources",
@@ -43,6 +45,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "luanvo1910",
+      "repo": "RenderTool"
     }
   }
 }
