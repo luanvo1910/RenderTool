@@ -29,10 +29,11 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
-  
-  // Khi ứng dụng đã sẵn sàng, tự động kiểm tra cập nhật
-  // Nó sẽ tự tải về trong nền và thông báo cho người dùng khi sẵn sàng cài đặt
-  autoUpdater.checkForUpdatesAndNotify();
+  if (!app.isPackaged) {
+    console.log('Update check skipped in development mode.');
+  } else {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -119,11 +120,13 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
     '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
   ], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   
+  // Xử lý output theo từng dòng để không bỏ sót
   pythonProcess.stdout.on('data', data => {
     const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
     for (const line of lines) {
       const logLine = line.trim();
-      if (!logLine) continue;
+      if (!logLine) continue; // Bỏ qua các dòng trống
+
       if (logLine.startsWith('PROGRESS:')) {
         const parts = logLine.split(':');
         const type = parts[1];

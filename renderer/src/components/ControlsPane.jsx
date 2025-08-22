@@ -20,7 +20,7 @@ export default function ControlsPane({
       </div>
       <div className="control-group">
         <label htmlFor="parts-input">Số phần tối đa:</label>
-        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" />
+        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="4" min="1" />
       </div>
       
       <div className="control-group">

@@ -1,7 +1,7 @@
 import sys, os, subprocess, json, re, argparse, urllib.request, shutil, base64
 import io
 
-# Đảm bảo stdout và stderr sử dụng UTF-8 để xử lý các ký tự đặc biệt
+# Đảm bảo stdout và stderr sử dụng UTF-8
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding.lower() != 'utf-8':
@@ -34,7 +34,6 @@ def hex_to_ffmpeg_color(hex_color, alpha='ff'):
 
 def time_str_to_seconds(time_str):
     try:
-        # Hỗ trợ cả định dạng HH:MM:SS.ss và HH:MM:SS
         parts = time_str.split(':')
         h = float(parts[0])
         m = float(parts[1])
@@ -49,21 +48,17 @@ def run_command_with_live_output(cmd, total_duration=None):
     last_percent = -1
     for line in iter(process.stdout.readline, ''):
         trimmed_line = line.strip()
-        is_progress_line = False
-        
-        # Xử lý tiến trình download của yt-dlp
+        if not trimmed_line:
+            continue
+
         if trimmed_line.startswith('[download]') and '%' in trimmed_line:
-            is_progress_line = True
             match = re.search(r"(\d+\.?\d+)%", trimmed_line)
             if match:
                 percent = int(float(match.group(1)))
                 if percent > last_percent:
                     last_percent = percent
                     print(f"PROGRESS:DOWNLOAD:{percent}", flush=True)
-            
-        # Xử lý tiến trình render của ffmpeg
-        if trimmed_line.startswith('frame=') and total_duration and total_duration > 0:
-            is_progress_line = True
+        elif trimmed_line.startswith('frame=') and total_duration and total_duration > 0:
             match = re.search(r"time=(\S+)", trimmed_line)
             if match:
                 current_time_str = match.group(1)
@@ -72,9 +67,7 @@ def run_command_with_live_output(cmd, total_duration=None):
                 if percent > last_percent:
                     last_percent = percent
                     print(f"PROGRESS:RENDER:{min(percent, 100)}", flush=True)
-
-        # Chỉ in các log không phải là tiến trình và không rỗng
-        if not is_progress_line and trimmed_line:
+        else:
             print(trimmed_line, flush=True)
 
     process.wait()
@@ -98,10 +91,16 @@ def fetch_video_metadata(url, yt_dlp_path, cookies_path):
 def download_main_video(url, yt_dlp_path, ffmpeg_path, dest_path, cookies_path):
     format_string = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
     cmd = [
-        yt_dlp_path, '--impersonate', 'chrome', '--downloader', 'aria2c',
-        '--downloader-args', 'aria2c:-x 16 -s 16 -k 1M', "--ffmpeg-location", ffmpeg_path,
-        "-f", format_string, "--merge-output-format", "mp4", "--ppa", "ffmpeg:-map_metadata -1",
-        "--no-mtime", "--no-playlist", "-o", dest_path, url
+        yt_dlp_path,
+        '--impersonate', 'chrome',
+        "--ffmpeg-location", ffmpeg_path,
+        "-f", format_string,
+        "--merge-output-format", "mp4",
+        "--ppa", "ffmpeg:-map_metadata -1",
+        "--no-mtime",
+        "--no-playlist",
+        "-o", dest_path,
+        url
     ]
     if os.path.exists(cookies_path):
         cmd += ["--cookies", cookies_path]
