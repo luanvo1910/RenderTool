@@ -12,6 +12,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process:log', listener);
     return () => ipcRenderer.removeListener('process:log', listener);
   },
+  
+  // Thêm kênh mới để nhận dữ liệu tiến trình
+  onProcessProgress: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('process:progress', listener);
+    return () => ipcRenderer.removeListener('process:progress', listener);
+  },
+
   showContextMenu: (elementId, elementType) => ipcRenderer.send('show-context-menu', { elementId, elementType }),
   onContextMenuCommand: (callback) => {
     const listener = (_event, value) => callback(value);

@@ -17,9 +17,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-
   const isDev = !app.isPackaged;
-
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
@@ -29,15 +27,10 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
-
+// Các hàm xử lý IPC không thay đổi
 ipcMain.handle('templates:get', () => store.get('templates', []));
 ipcMain.handle('templates:save', (event, template) => {
   const templates = store.get('templates', []);
@@ -66,9 +59,7 @@ ipcMain.on('show-context-menu', (event, { elementId, elementType }) => {
     commands.push({ type: 'separator' });
     commands.push({ label: 'Xóa ảnh', click: () => sendCommand('delete-element', elementId) });
   }
-  function sendCommand(action, id) {
-    event.sender.send('context-menu-command', { action, elementId: id });
-  }
+  function sendCommand(action, id) { event.sender.send('context-menu-command', { action, elementId: id }); }
   Menu.buildFromTemplate(commands).popup({ window: BrowserWindow.fromWebContents(event.sender) });
 });
 ipcMain.handle('dialog:openImage', async () => {
@@ -91,13 +82,10 @@ ipcMain.handle('dialog:openDirectory', async () => {
 });
 ipcMain.handle('cookies:update', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-    title: 'Chọn file cookies.txt mới',
-    properties: ['openFile'],
+    title: 'Chọn file cookies.txt mới', properties: ['openFile'],
     filters: [{ name: 'Text Files', extensions: ['txt'] }]
   });
-  if (canceled || !filePaths || filePaths.length === 0) {
-    return { success: false, message: 'Hủy chọn file.' };
-  }
+  if (canceled || !filePaths || filePaths.length === 0) { return { success: false, message: 'Hủy chọn file.' }; }
   try {
     const newCookiePath = filePaths[0];
     const newCookieData = fs.readFileSync(newCookiePath, 'utf8');
@@ -110,56 +98,48 @@ ipcMain.handle('cookies:update', async () => {
   }
 });
 
+// Hàm xử lý chính
 ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
-  const resourcesPath = app.isPackaged
-    ? process.resourcesPath
-    : path.join(__dirname, 'resources');
-
+  const resourcesPath = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
   const pythonScriptPath = path.join(resourcesPath, 'editor.py');
   const userDataPath = app.getPath('userData');
-
   const layoutFilePath = path.join(os.tmpdir(), `layout-${Date.now()}.json`);
   fs.writeFileSync(layoutFilePath, JSON.stringify(layout));
 
   const pythonProcess = spawn('python', [
-    pythonScriptPath,
-    '--resources-path', resourcesPath,
-    '--user-data-path', userDataPath,
-    '--url', url,
-    '--parts', String(parts),
-    '--save-path', savePath,
-    '--part-duration', String(partDuration),
-    '--layout-file', layoutFilePath,
-    '--encoder', encoder
-  ], {
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-  });
+    pythonScriptPath, '--resources-path', resourcesPath, '--user-data-path', userDataPath,
+    '--url', url, '--parts', String(parts), '--save-path', savePath,
+    '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
+  ], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   
+  // Phân loại log và tiến trình
   pythonProcess.stdout.on('data', data => {
     const logLine = data.toString('utf8').trim();
-    
-    const isDownloadProgress = logLine.startsWith('[download]') && logLine.includes('%');
-    const isFfmpegProgress = logLine.startsWith('frame=');
-    
-    if (!isDownloadProgress && !isFfmpegProgress) {
+    if (logLine.startsWith('PROGRESS:')) {
+      const parts = logLine.split(':');
+      const type = parts[1]; // DOWNLOAD hoặc RENDER
+      const value = parseFloat(parts[2]);
+      mainWindow.webContents.send('process:progress', { type, value });
+    } else if (logLine) { // Chỉ gửi nếu log không rỗng
       mainWindow.webContents.send('process:log', logLine);
     }
   });
   
   pythonProcess.stderr.on('data', data => {
     const logLine = data.toString('utf8').trim();
-    mainWindow.webContents.send('process:log', `PYTHON_ERROR: ${logLine}`);
+    if (logLine) {
+        mainWindow.webContents.send('process:log', `PYTHON_ERROR: ${logLine}`);
+    }
   });
-  
   pythonProcess.on('error', err => {
     mainWindow.webContents.send('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`);
   });
-  
   pythonProcess.on('close', code => {
     if (code === 403) {
       mainWindow.webContents.send('process:cookie-required');
     }
     mainWindow.webContents.send('process:log', `--- Tiến trình kết thúc với mã ${code} ---`);
+    mainWindow.webContents.send('process:progress', { type: 'DONE', value: 100 }); // Gửi tín hiệu hoàn thành
     if (fs.existsSync(layoutFilePath)) {
       fs.unlinkSync(layoutFilePath);
     }
