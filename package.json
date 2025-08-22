@@ -1,0 +1,69 @@
+{
+  "name": "project-rb",
+  "version": "1.0.0",
+  "description": "Ứng dụng tự động cắt và dựng video từ YouTube",
+  "main": "main.js",
+  "scripts": {
+    "dev:renderer": "npm run dev --prefix renderer",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "start": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "build:renderer": "npm run build --prefix renderer",
+    "build:electron": "electron-builder",
+    "build": "npm run build:renderer && npm run build:electron"
+  },
+  "keywords": [],
+  "author": "LuanVo",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.2",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "electron-store": "^7.0.3",
+    "font-list": "^1.5.1"
+  },
+  "build": {
+    "appId": "com.luanvo.projectrb",
+    "productName": "Project RB Video Creator",
+    "files": [
+      "renderer/dist/**/*",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "./resources",
+        "to": "./resources",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "./assets",
+        "to": "./assets",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "./editor.py",
+        "to": "./editor.py"
+      },
+      {
+        "from": "./cookies.txt",
+        "to": "./cookies.txt"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
