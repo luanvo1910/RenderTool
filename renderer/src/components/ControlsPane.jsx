@@ -1,11 +1,14 @@
 import React from 'react';
 
-// Thêm isRendering, statusText, và onUpdateCookies vào danh sách props được sử dụng
-export default function ControlsPane({ 
-  refs, log, results, isRenderFinished, encoder, 
-  onEncoderChange, onRunRender, onAddImage, onBrowse, 
-  onReset, onOpenLogModal, onUpdateCookies, isRendering, statusText 
-}) {
+function ControlsPane(props) {
+  const { 
+    refs,
+    log, results, isRendering, isRenderFinished,
+    statusText, progress,
+    encoder, onEncoderChange,
+    onRunRender, onAddImage, onAddText, onBrowse, onReset,
+    onOpenLogModal, onUpdateCookies, onUpdateDependencies
+  } = props;
   
   return (
     <div className="controls-pane">
@@ -20,12 +23,20 @@ export default function ControlsPane({
       </div>
       <div className="control-group">
         <label htmlFor="parts-input">Số phần tối đa:</label>
-        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="4" min="1" />
+        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="2" min="1" />
+      </div>
+
+      <div className="control-group">
+        <label>Chức năng khác:</label>
+        <div className="button-group">
+            <button id="addTextButton" onClick={onAddText} disabled={isRendering}>Thêm Văn bản</button>
+            <button id="addImageButton" onClick={onAddImage} disabled={isRendering}>Thêm Ảnh</button>
+        </div>
       </div>
       
       <div className="control-group">
         <label htmlFor="encoder-select">Encoder (Bộ mã hóa):</label>
-        <select id="encoder-select" value={encoder} onChange={onEncoderChange}>
+        <select id="encoder-select" value={encoder} onChange={onEncoderChange} disabled={isRendering}>
           <option value="libx264">Phần mềm (x264 - Tương thích nhất)</option>
           <option value="hevc_nvenc">Phần cứng (NVIDIA HEVC)</option>
           <option value="h264_nvenc">Phần cứng (NVIDIA H264)</option>
@@ -40,20 +51,31 @@ export default function ControlsPane({
         <label htmlFor="save-path-input">Lưu vào thư mục:</label>
         <div className="input-group">
           <input type="text" id="save-path-input" ref={refs.savePathInputRef} placeholder="Mặc định là thư mục 'output'" readOnly />
-          <button id="browseButton" onClick={onBrowse}>Chọn</button>
+          <button id="browseButton" onClick={onBrowse} disabled={isRendering}>Chọn</button>
         </div>
       </div>
+      
       <div className="control-group">
-        <button id="addImageButton" onClick={onAddImage}>Thêm Ảnh / Sticker</button>
-        <button id="updateCookiesButton" onClick={onUpdateCookies} style={{marginLeft: '10px'}}>Cập nhật Cookies</button>
+        <label>Bảo trì & Cài đặt:</label>
+        <div className="button-group">
+            <button id="updateCookiesButton" onClick={onUpdateCookies} disabled={isRendering}>Cập nhật Cookies</button>
+            <button id="updateDepsButton" onClick={onUpdateDependencies} disabled={isRendering}>Cập nhật Thư viện</button>
+        </div>
       </div>
+
       <hr />
-      <div className="control-group">
+
+      <div className="status-container">
+        <p className="status-text">{statusText}</p>
+        <div className="progress-bar-container">
+            <div className="progress-bar" style={{ width: `${progress}%` }}></div>
+        </div>
+      </div>
+
+      <div className="control-group action-buttons">
         <button id="runButton" onClick={onRunRender} disabled={isRendering}>
-          {isRendering ? 'ĐANG XỬ LÝ...' : 'BẮT ĐẦU RENDER VIDEO'}
+          {isRendering ? 'ĐANG RENDER...' : 'BẮT ĐẦU RENDER'}
         </button>
-        {/* Thêm dòng này để hiển thị trạng thái tiến trình */}
-        {isRendering && <p className="status-text" style={{ textAlign: 'center', marginTop: '10px', color: '#ccc' }}>{statusText}</p>}
       </div>
 
       <div className="log-container">
@@ -61,17 +83,10 @@ export default function ControlsPane({
           <h3>Nhật ký xử lý:</h3>
           <button className="view-log-btn" onClick={onOpenLogModal}>Xem chi tiết</button>
         </div>
-        {/* Giới hạn log hiển thị để tránh giao diện bị dài */}
-        <pre id="log-output" ref={refs.logOutputRef}>{log.split('\n').slice(-5).join('\n')}</pre>
-      </div>
-
-      <div id="results-container">
-        {results.length > 0 && <h3>Video đã hoàn thành:</h3>}
-        <div id="video-list">
-          {results.map((path, index) => <video key={index} src={path} controls style={{width: '100%', marginTop: '1rem'}} />)}
-        </div>
-        {isRenderFinished && <button id="newProjectButton" onClick={onReset}>Bắt đầu Project Mới</button>}
+        <pre id="log-output" ref={refs.logOutputRef}>{log}</pre>
       </div>
     </div>
   );
 }
+
+export default ControlsPane;

@@ -3,29 +3,21 @@ import interact from "interactjs";
 import TextPropertiesPanel from "./TextPropertiesPanel";
 
 const EditorPane = forwardRef(function EditorPane(props, ref) {
-  const { 
-    selectedElement, 
-    textStyle, 
+  const {
+    elements,
+    children, 
+    selectedElement,
     systemFonts,
-    onStyleChange, 
-    onElementSelect 
+    onElementSelect,
+    onStyleChange,
   } = props;
 
-  const getTextPreviewStyle = () => {
-    if (!textStyle) return {};
-    const outline = `${textStyle.outlineColor} 0px 0px ${textStyle.outlineWidth}px`;
-    const shadow = `${textStyle.shadowColor} ${textStyle.shadowDepth}px ${textStyle.shadowDepth}px 2px`;
-    return {
-      fontFamily: textStyle.fontFamily,
-      fontSize: `${textStyle.fontSize}px`,
-      color: textStyle.fontColor,
-      fontWeight: textStyle.isBold ? "bold" : "normal",
-      fontStyle: textStyle.isItalic ? "italic" : "normal",
-      textShadow: `${outline}, ${shadow}`,
-    };
-  };
-
   useEffect(() => {
+    // Hủy các instance cũ để tránh lỗi
+    if (interact('.edit-item').off) {
+        interact('.edit-item').off();
+    }
+    
     interact(".edit-item")
       .draggable({
         listeners: {
@@ -40,10 +32,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         },
         inertia: true,
         modifiers: [
-          interact.modifiers.restrictRect({
-            restriction: "parent",
-            endOnly: true,
-          }),
+          interact.modifiers.restrictRect({ restriction: "parent", endOnly: true }),
         ],
       })
       .resizable({
@@ -66,46 +55,42 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
       });
 
     interact("#element-properties").draggable({
-      inertia: true,
-      modifiers: [
-        interact.modifiers.restrictRect({
-          restriction: "parent",
-          endOnly: true,
-        }),
-      ],
-      autoScroll: true,
-      listeners: {
-        move(event) {
-          const target = event.target;
-          const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
-          const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
-          target.style.transform = `translate(${x}px, ${y}px)`;
-          target.setAttribute("data-x", x);
-          target.setAttribute("data-y", y);
+        allowFrom: 'h4', // Chỉ cho phép kéo từ tiêu đề
+        inertia: true,
+        modifiers: [
+          interact.modifiers.restrictRect({
+            restriction: "parent",
+            endOnly: true,
+          }),
+        ],
+        listeners: {
+          move(event) {
+            const target = event.target;
+            const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
+            const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
+            target.style.transform = `translate(${x}px, ${y}px)`;
+            target.setAttribute("data-x", x);
+            target.setAttribute("data-y", y);
+          },
         },
-      },
     });
-  }, []);
 
-  const handleElementClick = (e) => {
-    e.stopPropagation();
-    onElementSelect(e.currentTarget);
-  };
+  }, [elements.length]);
 
   const handleContextMenu = (e) => {
     e.preventDefault();
     const target = e.target.closest(".edit-item");
     if (target) {
-      onElementSelect(target);
+      onElementSelect(target.id);
       window.electronAPI.showContextMenu(target.id, target.dataset.type);
     }
   };
-  
+
   return (
     <div className="editor-pane">
-      {selectedElement && selectedElement.dataset.type === "text" && (
+      {selectedElement?.type === "text" && (
         <TextPropertiesPanel
-          textStyle={textStyle}
+          element={selectedElement}
           systemFonts={systemFonts}
           onStyleChange={onStyleChange}
         />
@@ -118,7 +103,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
           onClick={() => onElementSelect(null)}
           className="canvas-720-1280"
         >
-          {props.children}
+          {children}
         </div>
       </div>
     </div>

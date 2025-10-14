@@ -5,10 +5,14 @@ import ControlsPane from './components/ControlsPane';
 import './App.css';
 
 const VIDEO_WIDTH = 720;
+const defaultTextStyle = {
+  fontFamily: 'Arial', fontSize: 70, fontColor: '#FFFFFF', isBold: false, isItalic: false,
+  outlineColor: '#000000', outlineWidth: 2, shadowColor: '#000000', shadowDepth: 2,
+};
 const initialElements = [
-  { id: 'video-placeholder', type: 'video', zIndex: 1 },
-  { id: 'thumbnail-placeholder', type: 'thumbnail', zIndex: 2 },
-  { id: 'text-placeholder', type: 'text', zIndex: 3 },
+  { id: 'video-placeholder', type: 'video', zIndex: 1, source: null },
+  { id: 'thumbnail-placeholder', type: 'thumbnail', zIndex: 2, source: null },
+  { id: 'text-placeholder', type: 'text', zIndex: 3, content: "Part ...", style: { ...defaultTextStyle } },
 ];
 
 function LogModal({ log, onClose }) {
@@ -26,6 +30,7 @@ function LogModal({ log, onClose }) {
 }
 
 function App() {
+  const [elements, setElements] = useState(initialElements);
   const [log, setLog] = useState('');
   const [results, setResults] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -33,17 +38,10 @@ function App() {
   const [selectedElementId, setSelectedElementId] = useState(null);
   const [systemFonts, setSystemFonts] = useState([]);
   const [encoder, setEncoder] = useState('libx264');
-  const [elements, setElements] = useState(initialElements);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [isCookieRequired, setIsCookieRequired] = useState(false);
-  
-  // State mới để lưu trữ văn bản trạng thái
-  const [statusText, setStatusText] = useState('');
-
-  const [textStyle, setTextStyle] = useState({
-    fontFamily: 'Arial', fontSize: 70, fontColor: '#FFFFFF', isBold: false, isItalic: false,
-    outlineColor: '#000000', outlineWidth: 2, shadowColor: '#000000', shadowDepth: 2,
-  });
+  const [statusText, setStatusText] = useState('Sẵn sàng');
+  const [progress, setProgress] = useState(0);
 
   const urlInputRef = useRef(null);
   const durationInputRef = useRef(null);
@@ -51,56 +49,64 @@ function App() {
   const savePathInputRef = useRef(null);
   const logOutputRef = useRef(null);
   const canvasRef = useRef(null);
-  const selectedElement = document.getElementById(selectedElementId);
+
+  const selectedElement = elements.find(e => e.id === selectedElementId);
 
   useEffect(() => {
     loadAndRenderTemplates();
     window.electronAPI.getFonts().then(fonts => {
       if (fonts?.length > 0) {
         setSystemFonts(fonts);
-        setTextStyle(prev => ({ ...prev, fontFamily: fonts.includes('Arial') ? 'Arial' : fonts[0] }));
       }
     });
 
     const removeLogListener = window.electronAPI.onProcessLog((logLine) => {
-      if (logLine.includes('PYTHON_ERROR:') || logLine.includes('FATAL_ERROR:') || logLine.includes('--- Tiến trình kết thúc')) {
-        setIsRendering(false);
-        if (logLine.includes('ERROR:')) {
-            setStatusText('Đã xảy ra lỗi!');
-        } else {
-            setStatusText('Hoàn tất!');
+        if (logLine.startsWith('STATUS:')) {
+            setStatusText(logLine.replace('STATUS:', '').trim());
         }
-      }
-      if (logLine.startsWith('RESULT:')) {
-        const filePath = logLine.replace('RESULT:', '').trim();
-        setResults(prev => [...prev, `file://${filePath.replace(/\\/g, '/')}`]);
-      }
-      setLog(prev => prev + logLine + '\n');
-    });
-
-    // Lắng nghe trên kênh tiến trình mới
+        if (logLine.includes('PYTHON_ERROR:') || logLine.includes('FATAL_ERROR:') || logLine.includes('--- Tiến trình') || logLine.includes('--- Quá trình')) {
+          setIsRendering(false);
+          if (logLine.includes('ERROR')) {
+              setStatusText('Đã xảy ra lỗi!');
+          } else if (logLine.includes('SUCCESS:')){
+              // không làm gì cả
+          }
+          else {
+              setStatusText('Hoàn tất!');
+          }
+        }
+        if (logLine.startsWith('RESULT:')) {
+          const filePath = logLine.replace('RESULT:', '').trim();
+          setResults(prev => [...prev, `file://${filePath.replace(/\\/g, '/')}`]);
+        }
+        setLog(prev => prev + logLine + '\n');
+      });
+  
     const removeProgressListener = window.electronAPI.onProcessProgress(({ type, value }) => {
+      setProgress(value);
       if (type === 'DOWNLOAD') {
-        setStatusText(`Đang tải video... ${value}%`);
+        setStatusText(`Đang tải video... ${Math.round(value)}%`);
       } else if (type === 'RENDER') {
-        setStatusText(`Đang render... ${value}%`);
+        setStatusText(`Đang render... ${Math.round(value)}%`);
+      } else if (type === 'DONE') {
+        setProgress(100);
       }
     });
-
+  
     const removeContextMenuListener = window.electronAPI.onContextMenuCommand(({ action, elementId }) => {
       handleLayerAction(action, elementId);
     });
-
+  
     const removeCookieListener = window.electronAPI.onCookieRequired(() => {
         setLog(prev => prev + 'ERROR: Video này yêu cầu cookies để tải. Vui lòng cập nhật cookies.' + '\n');
         setIsRendering(false);
         setIsCookieRequired(true);
         setStatusText('Lỗi! Cần cập nhật cookies.');
     });
-
+  
     return () => {
       removeLogListener();
-      removeProgressListener(); // Dọn dẹp listener mới
+      removeProgressListener();
       removeContextMenuListener();
       removeCookieListener();
     };
@@ -119,7 +125,8 @@ function App() {
     setResults([]);
     setIsRendering(true);
     setIsCookieRequired(false);
-    setStatusText('Bắt đầu...'); // Trạng thái ban đầu
+    setStatusText('Bắt đầu...');
+    setProgress(0);
     window.electronAPI.runProcessWithLayout({
       url: urlInputRef.current.value,
       parts: partsInputRef.current.value,
@@ -129,8 +136,27 @@ function App() {
       encoder: encoder,
     });
   };
-  
-  // Các hàm xử lý khác không thay đổi
+
+  const handleElementSelect = (elementId) => {
+    setSelectedElementId(elementId);
+  };
+
+  const handleStyleChange = (property, value) => {
+    if (!selectedElementId) return;
+    setElements(prevElements =>
+      prevElements.map(el =>
+        el.id === selectedElementId
+          ? {
+              ...el,
+              ...(property === 'content'
+                ? { content: value }
+                : { style: { ...el.style, [property]: value } })
+            }
+          : el
+      )
+    );
+  };
+
   const handleLayerAction = (action, elementId) => {
     setElements(currentElements => {
       const newElements = [...currentElements].sort((a, b) => a.zIndex - b.zIndex);
@@ -147,6 +173,7 @@ function App() {
       return newElements;
     });
   };
+
   const captureLayoutData = () => {
     if (!canvasRef.current) return [];
     const scaleFactor = VIDEO_WIDTH / canvasRef.current.offsetWidth;
@@ -161,47 +188,63 @@ function App() {
         y: Math.round((el.offsetTop + transformY) * scaleFactor),
         width: Math.round(el.offsetWidth * scaleFactor),
         height: Math.round(el.offsetHeight * scaleFactor),
-        zIndex: elementInfo.zIndex, source: el.dataset.source || null,
+        zIndex: elementInfo.zIndex, source: elementInfo.source || null, content: elementInfo.content || null,
         ui: { x: transformX, y: transformY, width: el.offsetWidth, height: el.offsetHeight },
       };
       if (itemData.type === 'text') {
-        itemData.textStyle = { ...textStyle, fontSize: Math.round(textStyle.fontSize * scaleFactor) };
+        itemData.textStyle = {
+            ...elementInfo.style,
+            fontSize: Math.round(elementInfo.style.fontSize * scaleFactor)
+        };
       }
       return itemData;
     }).filter(Boolean);
   };
+
   const applyLayout = (layoutData) => {
-    const newElementsState = [];
-    layoutData.forEach(itemData => {
-      const element = document.getElementById(itemData.id);
-      if (element && itemData.ui) {
-        element.style.width = `${itemData.ui.width}px`;
-        element.style.height = `${itemData.ui.height}px`;
-        element.style.transform = `translate(${itemData.ui.x}px, ${itemData.ui.y}px)`;
-        element.setAttribute('data-x', itemData.ui.x);
-        element.setAttribute('data-y', itemData.ui.y);
-      }
-      if (itemData.type === 'text' && itemData.textStyle) {
-        const scaleFactor = canvasRef.current.offsetWidth / VIDEO_WIDTH;
-        setTextStyle({ ...itemData.textStyle, fontSize: Math.round(itemData.textStyle.fontSize * scaleFactor) });
-      }
-      newElementsState.push({ id: itemData.id, type: itemData.type, zIndex: itemData.zIndex, source: itemData.source });
+    if (!canvasRef.current) return;
+    const scaleFactor = canvasRef.current.offsetWidth / VIDEO_WIDTH;
+    const newElementsState = layoutData.map(itemData => {
+      let scaledStyle = itemData.textStyle ? { 
+        ...itemData.textStyle, 
+        fontSize: Math.round(itemData.textStyle.fontSize * scaleFactor) 
+      } : null;
+      
+      setTimeout(() => {
+        const element = document.getElementById(itemData.id);
+        if (element && itemData.ui) {
+          element.style.width = `${itemData.ui.width}px`;
+          element.style.height = `${itemData.ui.height}px`;
+          element.style.transform = `translate(${itemData.ui.x}px, ${itemData.ui.y}px)`;
+          element.setAttribute('data-x', itemData.ui.x);
+          element.setAttribute('data-y', itemData.ui.y);
+        }
+      }, 0);
+
+      return {
+        id: itemData.id, type: itemData.type, zIndex: itemData.zIndex,
+        source: itemData.source, content: itemData.content, style: scaledStyle,
+      };
     });
     setElements(newElementsState);
   };
+
   const loadAndRenderTemplates = async () => {
     const fetchedTemplates = await window.electronAPI.getTemplates();
     setTemplates(fetchedTemplates);
   };
+
   const handleSaveTemplate = async (templateName) => {
     const newTemplate = { id: `template-${Date.now()}`, name: templateName, layout: captureLayoutData() };
     await window.electronAPI.saveTemplate(newTemplate);
     loadAndRenderTemplates();
   };
+
   const handleDeleteTemplate = async (templateId) => {
     await window.electronAPI.deleteTemplate(templateId);
     loadAndRenderTemplates();
   };
+
   const handleAddImage = async () => {
     const dataUrl = await window.electronAPI.openImageDialog();
     if (dataUrl) {
@@ -212,17 +255,43 @@ function App() {
       });
     }
   };
+
+  const handleAddText = () => {
+    const newId = `text-${Date.now()}`;
+    setElements(prev => {
+        const maxZIndex = prev.length > 0 ? Math.max(...prev.map(e => e.zIndex)) : 0;
+        return [...prev, {
+            id: newId, type: 'text', zIndex: maxZIndex + 1,
+            content: "Văn bản mới", style: { ...defaultTextStyle, fontSize: 50 }
+        }];
+    });
+  };
+
   const handleUpdateCookies = async () => {
     const result = await window.electronAPI.updateCookies();
     alert(result.message);
   };
+
+  const handleUpdateDependencies = () => {
+    setLog(prev => prev + 'Đang yêu cầu cập nhật thư viện lõi...\n');
+    window.electronAPI.updateDependencies();
+  };
+
   const handleBrowse = async () => {
     const path = await window.electronAPI.openDirectoryDialog();
     if (path) savePathInputRef.current.value = path;
   };
-  const handleStyleChange = (property, value) => {
-    setTextStyle(prev => ({ ...prev, [property]: value }));
+
+  const handleReset = () => {
+    setElements(initialElements);
+    setLog('');
+    setResults([]);
+    setStatusText('Sẵn sàng');
+    setProgress(0);
+    if(urlInputRef.current) urlInputRef.current.value = '';
+    if(savePathInputRef.current) savePathInputRef.current.value = '';
   };
+  
   const handleUpdateCookiesAndRetry = async () => {
     setIsCookieRequired(false);
     const result = await window.electronAPI.updateCookies();
@@ -232,34 +301,41 @@ function App() {
         alert(result.message);
     }
   };
+
   const renderCanvasChildren = () => {
-    return elements.map(elementInfo => {
-      const { id, type, zIndex, source } = elementInfo;
-      const isSelected = id === selectedElementId;
-      const classNames = `edit-item ${type === 'image' ? 'custom-image' : ''} ${isSelected ? 'selected' : ''}`;
-      let specificStyle = { zIndex };
-      if (type === 'text') {
-        specificStyle = { 
-            ...specificStyle, fontFamily: textStyle.fontFamily, fontSize: `${textStyle.fontSize}px`,
-            color: textStyle.fontColor, fontWeight: textStyle.isBold ? 'bold' : 'normal',
-            fontStyle: textStyle.isItalic ? 'italic' : 'normal',
-            textShadow: `${textStyle.outlineColor} 0px 0px ${textStyle.outlineWidth}px, ${textStyle.shadowColor} ${textStyle.shadowDepth}px ${textStyle.shadowDepth}px 2px`
+    const sortedElements = [...elements].sort((a, b) => a.zIndex - b.zIndex);
+    return sortedElements.map(elementInfo => {
+      const { id, type, zIndex, source, style, content } = elementInfo;
+      const isSelected = selectedElementId === id;
+      const classNames = `edit-item ${type}-item ${isSelected ? 'selected' : ''}`;
+      
+      let elementStyle = { zIndex };
+      if (type === 'text' && style) {
+        elementStyle = {
+          ...elementStyle,
+          fontFamily: style.fontFamily,
+          fontSize: `${style.fontSize}px`,
+          color: style.fontColor,
+          fontWeight: style.isBold ? 'bold' : 'normal',
+          fontStyle: style.isItalic ? 'italic' : 'normal',
+          textShadow: `${style.outlineColor} 0px 0px ${style.outlineWidth}px, ${style.shadowColor} ${style.shadowDepth}px ${style.shadowDepth}px 2px`
         };
       } else if (type === 'image' && source) {
-        specificStyle.backgroundImage = `url('${source}')`;
+        elementStyle.backgroundImage = `url('${source}')`;
       }
+
       return (
-        <div 
-          key={id} id={id} data-type={type} data-source={source || ''} className={classNames} 
-          style={specificStyle} onClick={(e) => { e.stopPropagation(); setSelectedElementId(id); }}
+        <div
+          key={id} id={id} data-type={type}
+          className={classNames} style={elementStyle}
+          onClick={(e) => { e.stopPropagation(); handleElementSelect(id); }}
         >
-          {type !== 'text' && type !== 'image' && <p>{type.toUpperCase().replace('-', ' ')}</p>}
-          {type === 'text' && <p>Part ...</p>}
+          {content ? <p>{content}</p> : <p>{type.toUpperCase()}</p>}
         </div>
       );
     });
-  }
-  
+  };
+
   const controlRefs = { urlInputRef, durationInputRef, partsInputRef, savePathInputRef, logOutputRef };
 
   return (
@@ -277,35 +353,41 @@ function App() {
           </div>
         </div>
       )}
-      <TemplatePane 
+
+      <TemplatePane
         templates={templates} onSave={handleSaveTemplate}
         onLoad={applyLayout} onDelete={handleDeleteTemplate}
       />
-      <EditorPane 
-        ref={canvasRef} selectedElement={selectedElement}
-        onElementSelect={(el) => setSelectedElementId(el?.id)}
-        textStyle={textStyle} systemFonts={systemFonts}
+      
+      <EditorPane
+        ref={canvasRef}
+        elements={elements} 
+        selectedElement={selectedElement}
+        systemFonts={systemFonts}
+        onElementSelect={handleElementSelect}
         onStyleChange={handleStyleChange}
       >
         {renderCanvasChildren()}
       </EditorPane>
       
-      {/* Truyền trạng thái mới vào ControlsPane */}
       <ControlsPane 
         refs={controlRefs}
         log={log}
         results={results}
         isRendering={isRendering}
         statusText={statusText}
+        progress={progress}
         isRenderFinished={!isRendering && results.length > 0}
         onRunRender={handleRunRender}
         onAddImage={handleAddImage}
+        onAddText={handleAddText}
         onBrowse={handleBrowse}
-        onReset={() => { setElements(initialElements); }}
+        onReset={handleReset}
         encoder={encoder}
         onEncoderChange={(e) => setEncoder(e.target.value)}
         onOpenLogModal={() => setIsLogModalOpen(true)}
         onUpdateCookies={handleUpdateCookies}
+        onUpdateDependencies={handleUpdateDependencies}
       />
     </div>
   );
