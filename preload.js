@@ -30,5 +30,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process:cookie-required', listener);
     return () => ipcRenderer.removeListener('process:cookie-required', listener);
   },
-  // Đã loại bỏ hoàn toàn các hàm cập nhật không cần thiết
 });

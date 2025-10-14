@@ -39,7 +39,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
-// --- CÁC HÀM XỬ LÝ IPC ---
 ipcMain.handle('templates:get', () => store.get('templates', []));
 ipcMain.handle('templates:save', (event, template) => {
   const templates = store.get('templates', []);

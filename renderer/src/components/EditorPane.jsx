@@ -13,7 +13,6 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
   } = props;
 
   useEffect(() => {
-    // Hủy các instance cũ để tránh lỗi
     if (interact('.edit-item').off) {
         interact('.edit-item').off();
     }
@@ -55,7 +54,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
       });
 
     interact("#element-properties").draggable({
-        allowFrom: 'h4', // Chỉ cho phép kéo từ tiêu đề
+        allowFrom: 'h4',
         inertia: true,
         modifiers: [
           interact.modifiers.restrictRect({

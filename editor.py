@@ -11,22 +11,17 @@ import io
 import threading
 import yt_dlp
 
-# --- BẢN VÁ LỖI UTF-8 ---
 if sys.stdout.encoding != 'utf-8': sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8': sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# --- CÁC HÀM TIỆN ÍCH (Giữ nguyên) ---
 def get_executable_path(name, resources_path):
-    # ...
     executable_name = name if sys.platform != 'win32' else f"{name}.exe"
     return os.path.join(resources_path, executable_name)
 
 def sanitize_filename(name):
-    # ...
     return re.sub(r'[\\/*?:"<>|]', "", name)
 
 def hex_to_ffmpeg_color(hex_color, alpha='ff'):
-    # ...
     try:
         hex_color = hex_color.lstrip('#')
         if len(hex_color) != 6: raise ValueError
@@ -34,9 +29,13 @@ def hex_to_ffmpeg_color(hex_color, alpha='ff'):
     except:
         return "0xFFFFFFFF"
 
-# --- LOGIC TẢI XUỐNG BẰNG THƯ VIỆN YT-DLP (Giữ nguyên) ---
+def ffmpeg_safe_path(path):
+    """Bảo vệ (escape) các ký tự đặc biệt trong đường dẫn cho FFMPEG, đặc biệt là dấu ':' trên Windows."""
+    if sys.platform == "win32":
+        return path.replace(":", "\\:")
+    return path
+
 def ytdlp_progress_hook(d):
-    # ...
     if d['status'] == 'downloading':
         try:
             percent_str = d.get('_percent_str', '0.0%').replace('%','').strip()
@@ -47,7 +46,6 @@ def ytdlp_progress_hook(d):
         print("PROGRESS:DOWNLOAD:100", flush=True)
 
 def fetch_video_metadata(url, cookies_path):
-    # ...
     ydl_opts = {'quiet': True, 'no_warnings': True, 'noplaylist': True}
     if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
     try:
@@ -57,7 +55,6 @@ def fetch_video_metadata(url, cookies_path):
         raise e
 
 def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
-    # ...
     output_template = os.path.splitext(dest_path)[0] + '.%(ext)s'
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best', 'merge_output_format': 'mp4',
@@ -75,7 +72,6 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
         raise e
 
 def run_command_with_live_output(cmd, total_duration=None):
-    # ... (Hàm này giữ nguyên)
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
     process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -103,17 +99,26 @@ def run_command_with_live_output(cmd, total_duration=None):
     if process.returncode != 0:
         raise subprocess.CalledProcessError(process.returncode, cmd, output='\n'.join(stdout_output), stderr='\n'.join(stderr_output))
 
-
 def download_thumbnail(thumbnail_url, dest_path):
-    # ...
     urllib.request.urlretrieve(thumbnail_url, dest_path)
     if not os.path.exists(dest_path): raise FileNotFoundError("Could not download thumbnail")
 
+def get_system_font_dir():
+    if sys.platform == "win32":
+        return 'C:/Windows/Fonts'
+    elif sys.platform == "darwin":
+        return '/System/Library/Fonts'
+    else:
+        return '/usr/share/fonts/truetype'
+
 def build_ffmpeg_filter(layout, input_map, start, duration, part_num):
-    # ... (Hàm này giữ nguyên)
     layout.sort(key=lambda x: int(x.get('zIndex', 0)))
     filters, last_stream = ["color=s=720x1280:c=black[canvas]"], "canvas"
     overlay_count = 0
+    
+    font_dir = get_system_font_dir()
+    safe_font_dir = ffmpeg_safe_path(font_dir)
+
     for item in layout:
         if item.get('type') == 'text' or item.get('id') not in input_map: continue
         input_index, w, h, x, y = input_map[item['id']], item['width'], item['height'], item['x'], item['y']
@@ -123,25 +128,48 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num):
         else: filters.append(f"[{input_index}:v]{scale_filter}[{scaled_stream}]")
         filters.append(f"[{last_stream}][{scaled_stream}]overlay={x}:{y}[{output_stream}]")
         last_stream, overlay_count = output_stream, overlay_count + 1
+    
     for item in layout:
       if item.get('type') == 'text':
-        style = item.get("textStyle", {}); content = item.get("content", " ")
+        style = item.get("textStyle", {})
+        content = item.get("content", " ")
         text_to_draw = f"Part {part_num}" if item.get('id') == 'text-placeholder' else str(content)
         text_to_draw = text_to_draw.replace("'", "’").replace(":", "\\:").replace("%", "\\%")
-        font_size = style.get("fontSize", 70); font_color = hex_to_ffmpeg_color(style.get("fontColor", "#FFFFFF"))
-        border_w = style.get("outlineWidth", 2); border_color = hex_to_ffmpeg_color(style.get("outlineColor", "#000000"))
+        font_size = style.get("fontSize", 70)
+        font_color = hex_to_ffmpeg_color(style.get("fontColor", "#FFFFFF"))
+        border_w = style.get("outlineWidth", 2)
+        border_color = hex_to_ffmpeg_color(style.get("outlineColor", "#000000"))
         shadow_color = hex_to_ffmpeg_color(style.get("shadowColor", "#000000"), "80")
-        shadow_x = style.get("shadowDepth", 2); shadow_y = style.get("shadowDepth", 2)
-        text_x = item['x'] + (item['width'] / 2); text_y = item['y'] + (item['height'] / 2)
+        shadow_x = style.get("shadowDepth", 2)
+        shadow_y = style.get("shadowDepth", 2)
+        text_x = item['x'] + (item['width'] / 2)
+        text_y = item['y'] + (item['height'] / 2)
         font_name = style.get("fontFamily", "Arial").replace("'", "").replace(":", "\\:")
-        drawtext_filter = f"drawtext=font='{font_name}':text='{text_to_draw}':fontsize={font_size}:fontcolor={font_color}:x={text_x}-(text_w/2):y={text_y}-(text_h/2):borderw={border_w}:bordercolor={border_color}:shadowcolor={shadow_color}:shadowx={shadow_x}:shadowy={shadow_y}"
-        output_stream = f"txt{overlay_count}"; filters.append(f"[{last_stream}]{drawtext_filter}[{output_stream}]")
-        last_stream = output_stream; overlay_count += 1
+        
+        drawtext_filter = (
+            f"drawtext="
+            f"fontdir='{safe_font_dir}':"
+            f"font='{font_name}':"
+            f"text='{text_to_draw}':"
+            f"fontsize={font_size}:"
+            f"fontcolor={font_color}:"
+            f"x={text_x}-(text_w/2):"
+            f"y={text_y}-(text_h/2):"
+            f"borderw={border_w}:"
+            f"bordercolor={border_color}:"
+            f"shadowcolor={shadow_color}:"
+            f"shadowx={shadow_x}:"
+            f"shadowy={shadow_y}"
+        )
+        
+        output_stream = f"txt{overlay_count}"
+        filters.append(f"[{last_stream}]{drawtext_filter}[{output_stream}]")
+        last_stream, overlay_count = output_stream, overlay_count + 1
+        
     if last_stream != "canvas": filters.append(f"[{last_stream}]copy[final_v]")
     else: filters.append(f"[canvas]copy[final_v]")
     filters.append(f"[0:a]atrim=start={start}:duration={duration},asetpts=PTS-STARTPTS[final_a]")
     return ";".join(filters), "final_v"
-
 
 def process_video(url, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path):
     with open(layout_file, 'r', encoding='utf-8') as f: layout = json.load(f)
@@ -177,17 +205,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
             if start_time >= total_duration: break
             output_path = os.path.join(output_dir, f"{sanitized_title}_Part_{part_num}.mp4")
             print(f"STATUS: Render Part {part_num}/{actual_num_parts}...", flush=True)
-
-            # =================================================================
-            # <<< SỬA LỖI Ở ĐÂY: Thêm `-progress -` và `-nostats` >>>
-            # =================================================================
-            cmd = [
-                ffmpeg_path, '-y', 
-                '-progress', '-', '-nostats', # <-- Thêm 2 tham số này
-                '-i', main_video_path, 
-                '-i', thumbnail_path
-            ]
-            
+            cmd = [ffmpeg_path, '-y', '-progress', '-', '-nostats', '-i', main_video_path, '-i', thumbnail_path]
             input_map = {'video-placeholder': 0, 'thumbnail-placeholder': 1}; image_index = 2
             for item in layout:
                 if item['type'] == 'image' and item['source'] and item['source'].startswith('data:image'):
@@ -198,21 +216,16 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
                         with open(temp_image_path, 'wb') as img_f: img_f.write(image_data)
                         cmd += ['-i', temp_image_path]; input_map[item['id']] = image_index; image_index += 1
                     except Exception as e: print(f"Warning: Could not process image {item['id']}: {e}")
-            
             filter_complex, final_video_stream = build_ffmpeg_filter(layout, input_map, start_time, part_duration, part_num)
             cmd += ['-filter_complex', filter_complex, '-map', f'[{final_video_stream}]', '-map', '[final_a]']
-            
             if 'nvenc' in encoder: cmd += ['-c:v', encoder, '-preset', 'p5', '-cq', '23', '-b:v', '0']
             elif 'amf' in encoder: cmd += ['-c:v', encoder, '-quality', 'balanced', '-qp', '23']
             elif 'qsv' in encoder: cmd += ['-c:v', encoder, '-preset', 'medium', '-global_quality', '23']
             else: cmd += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '4']
-            
             cmd += ['-c:a', 'aac', '-b:a', '192k', '-r', '30', '-shortest', output_path]
-            
             print(f"STATUS: Khởi tạo FFMPEG cho Part {part_num} (có thể mất vài phút)...", flush=True)
             run_command_with_live_output(cmd, total_duration=part_duration)
             print(f"RESULT:{output_path}", flush=True)
-
         print("STATUS: Hoàn tất tất cả các phần!", flush=True)
     except Exception as e:
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
@@ -221,7 +234,6 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         print("STATUS: Dọn dẹp file tạm...", flush=True)
         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
 
-# ... (phần if __name__ == "__main__": giữ nguyên) ...
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Video Processing Script")
     parser.add_argument('--resources-path', required=True)

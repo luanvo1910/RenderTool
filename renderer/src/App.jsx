@@ -69,7 +69,6 @@ function App() {
           if (logLine.includes('ERROR')) {
               setStatusText('Đã xảy ra lỗi!');
           } else if (logLine.includes('SUCCESS:')){
-              // không làm gì cả
           }
           else {
               setStatusText('Hoàn tất!');

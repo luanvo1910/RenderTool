@@ -1,7 +1,6 @@
 import React from 'react';
 
 function TextPropertiesPanel({ element, systemFonts, onStyleChange }) {
-  // Guard clause để đảm bảo an toàn
   if (!element || !element.style) {
     return null;
   }
@@ -12,7 +11,6 @@ function TextPropertiesPanel({ element, systemFonts, onStyleChange }) {
     <div id="element-properties">
       <h4>Thuộc tính Chữ</h4>
 
-      {/* Chỉ cho phép sửa nội dung của text tự thêm */}
       {element.id !== 'text-placeholder' && (
          <div className="prop-group">
             <label>Nội dung:</label>
