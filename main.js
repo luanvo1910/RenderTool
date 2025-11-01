@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const Store = require('electron-store');
-const fontList = require('font-list');
+// const fontList = require('font-list'); // << ĐÃ XÓA
 const fs = require('fs');
 const os = require('os');
 const { autoUpdater } = require('electron-updater');
@@ -39,6 +39,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
+// --- CÁC HÀM XỬ LÝ IPC ---
 ipcMain.handle('templates:get', () => store.get('templates', []));
 ipcMain.handle('templates:save', (event, template) => {
   const templates = store.get('templates', []);
@@ -52,11 +53,46 @@ ipcMain.handle('templates:delete', (event, templateId) => {
   store.set('templates', templates.filter(t => t.id !== templateId));
   return true;
 });
+
+// =================================================================
+// <<< SỬA LỖI: Chỉ đọc font từ thư mục 'resources/assets' >>>
+// =================================================================
 ipcMain.handle('fonts:get', async () => {
   try {
-    const fonts = await fontList.getFonts();
-    return [...new Set(fonts.map(f => f.replace(/"/g, '')))];
-  } catch (err) { return []; }
+    const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
+    const fontsDir = path.join(resourcesPath, 'resources', 'assets');
+    
+    // Tạo danh sách font cơ bản để dự phòng
+    const defaultFonts = ['Arial'];
+
+    if (!fs.existsSync(fontsDir)) {
+        console.error(`Không tìm thấy thư mục font tại: ${fontsDir}`);
+        return defaultFonts;
+    }
+
+    const fontFiles = fs.readdirSync(fontsDir);
+    const fontNames = fontFiles
+      .filter(file => file.toLowerCase().endsWith('.ttf') || file.toLowerCase().endsWith('.otf'))
+      .map(file => {
+          // Lấy tên font (ví dụ: "Arial" từ "arial.ttf")
+          let name = path.parse(file).name;
+          // Chuẩn hóa một số tên phổ biến
+          if (/arial/i.test(name)) name = 'Arial';
+          if (/times/i.test(name)) name = 'Times New Roman';
+          if (/comic/i.test(name)) name = 'Comic Sans MS';
+          if (/impact/i.test(name)) name = 'Impact';
+          if (/verdana/i.test(name)) name = 'Verdana';
+          if (/calibri/i.test(name)) name = 'Calibri';
+          // Trả về tên đã chuẩn hóa
+          return name.charAt(0).toUpperCase() + name.slice(1);
+      });
+    
+    // Trả về danh sách font đã được chuẩn hóa và loại bỏ trùng lặp
+    return [...new Set([...defaultFonts, ...fontNames])];
+  } catch (err) {
+    console.error("Lỗi khi đọc thư mục font:", err);
+    return ['Arial']; // Trả về font mặc định an toàn
+  }
 });
 
 ipcMain.on('show-context-menu', (event, { elementId, elementType }) => {

@@ -3,11 +3,13 @@ import React from 'react';
 function ControlsPane(props) {
   const { 
     refs,
-    log, results, isRendering, isRenderFinished,
+    log, isRendering,
     statusText, progress,
     encoder, onEncoderChange,
     onRunRender, onAddImage, onAddText, onBrowse, onReset,
-    onOpenLogModal, onUpdateCookies, onUpdateDependencies
+    onOpenLogModal,
+    // <<< NHẬN 2 PROPS MỚI >>>
+    splitMode, onSplitModeChange
   } = props;
   
   return (
@@ -17,13 +19,30 @@ function ControlsPane(props) {
         <label htmlFor="youtube-url">Link YouTube:</label>
         <input type="text" id="youtube-url" ref={refs.urlInputRef} placeholder="Dán link video vào đây..." />
       </div>
+      
+      {/* <<< THÊM KHỐI MỚI NÀY >>> */}
       <div className="control-group">
-        <label htmlFor="part-duration">Thời lượng mỗi phần (giây):</label>
-        <input type="number" id="part-duration" ref={refs.durationInputRef} defaultValue="120" min="1" />
+        <label htmlFor="split-mode">Phương thức chia video:</label>
+        <select id="split-mode" value={splitMode} onChange={onSplitModeChange} disabled={isRendering}>
+          <option value="duration">Theo Thời lượng (giây)</option>
+          <option value="equal">Chia đều (theo Số phần)</option>
+        </select>
       </div>
+
+      {/* <<< THÊM LOGIC ẨN/HIỆN Ở ĐÂY >>> */}
+      {splitMode === 'duration' && (
+        <div className="control-group">
+          <label htmlFor="part-duration">Thời lượng mỗi phần (giây):</label>
+          <input type="number" id="part-duration" ref={refs.durationInputRef} defaultValue="120" min="1" />
+        </div>
+      )}
+
       <div className="control-group">
-        <label htmlFor="parts-input">Số phần tối đa:</label>
-        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="2" min="1" />
+        <label htmlFor="parts-input">
+          {/* Đổi nhãn tùy theo chế độ */}
+          {splitMode === 'duration' ? 'Số phần TỐI ĐA:' : 'Chia thành (Số phần):'}
+        </label>
+        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" />
       </div>
 
       <div className="control-group">
@@ -55,14 +74,6 @@ function ControlsPane(props) {
         </div>
       </div>
       
-      <div className="control-group">
-        <label>Bảo trì & Cài đặt:</label>
-        <div className="button-group">
-            <button id="updateCookiesButton" onClick={onUpdateCookies} disabled={isRendering}>Cập nhật Cookies</button>
-            <button id="updateDepsButton" onClick={onUpdateDependencies} disabled={isRendering}>Cập nhật Thư viện</button>
-        </div>
-      </div>
-
       <hr />
 
       <div className="status-container">
@@ -85,6 +96,10 @@ function ControlsPane(props) {
         </div>
         <pre id="log-output" ref={refs.logOutputRef}>{log}</pre>
       </div>
+
+      {!isRendering && log.includes('--- Tiến trình kết thúc') && (
+        <button id="newProjectButton" onClick={onReset}>Bắt đầu Project Mới</button>
+      )}
     </div>
   );
 }

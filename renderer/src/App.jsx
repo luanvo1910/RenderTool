@@ -6,8 +6,19 @@ import './App.css';
 
 const VIDEO_WIDTH = 720;
 const defaultTextStyle = {
-  fontFamily: 'Arial', fontSize: 70, fontColor: '#FFFFFF', isBold: false, isItalic: false,
-  outlineColor: '#000000', outlineWidth: 2, shadowColor: '#000000', shadowDepth: 2,
+  fontFamily: 'Arial',
+  reactFontSize: 70,
+  fontRenderScale: 1.0,
+  fontColor: '#FFFFFF',
+  isBold: false,
+  isItalic: false,
+  outlineColor: '#000000',
+  outlineWidth: 2,
+  shadowColor: '#000000',
+  shadowDepth: 2,
+  boxColor: '#000000',
+  boxOpacity: 0.5,
+  boxPadding: 10,
 };
 const initialElements = [
   { id: 'video-placeholder', type: 'video', zIndex: 1, source: null },
@@ -32,7 +43,6 @@ function LogModal({ log, onClose }) {
 function App() {
   const [elements, setElements] = useState(initialElements);
   const [log, setLog] = useState('');
-  const [results, setResults] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [isRendering, setIsRendering] = useState(false);
   const [selectedElementId, setSelectedElementId] = useState(null);
@@ -42,6 +52,9 @@ function App() {
   const [isCookieRequired, setIsCookieRequired] = useState(false);
   const [statusText, setStatusText] = useState('Sẵn sàng');
   const [progress, setProgress] = useState(0);
+
+  // <<< THÊM STATE MỚI ĐỂ QUẢN LÝ CHẾ ĐỘ CHIA VIDEO >>>
+  const [splitMode, setSplitMode] = useState('duration'); // 'duration' hoặc 'equal'
 
   const urlInputRef = useRef(null);
   const durationInputRef = useRef(null);
@@ -68,15 +81,9 @@ function App() {
           setIsRendering(false);
           if (logLine.includes('ERROR')) {
               setStatusText('Đã xảy ra lỗi!');
-          } else if (logLine.includes('SUCCESS:')){
-          }
-          else {
+          } else {
               setStatusText('Hoàn tất!');
           }
-        }
-        if (logLine.startsWith('RESULT:')) {
-          const filePath = logLine.replace('RESULT:', '').trim();
-          setResults(prev => [...prev, `file://${filePath.replace(/\\/g, '/')}`]);
         }
         setLog(prev => prev + logLine + '\n');
       });
@@ -117,19 +124,25 @@ function App() {
     }
   }, [log]);
 
+  // <<< CẬP NHẬT HÀM NÀY >>>
   const handleRunRender = () => {
     if (!urlInputRef.current.value) return alert('Vui lòng nhập link YouTube.');
     if (isRendering) return;
     setLog('Bắt đầu gửi dữ liệu layout và xử lý...\n');
-    setResults([]);
     setIsRendering(true);
     setIsCookieRequired(false);
     setStatusText('Bắt đầu...');
     setProgress(0);
+    
+    // Quyết định giá trị partDuration dựa trên splitMode
+    const durationValue = (splitMode === 'duration') 
+                            ? durationInputRef.current.value 
+                            : 0; // Gửi 0 để Python tự chia đều
+
     window.electronAPI.runProcessWithLayout({
       url: urlInputRef.current.value,
       parts: partsInputRef.current.value,
-      partDuration: durationInputRef.current.value,
+      partDuration: durationValue, // Gửi giá trị đã tính toán
       savePath: savePathInputRef.current.value,
       layout: captureLayoutData(),
       encoder: encoder,
@@ -190,10 +203,17 @@ function App() {
         zIndex: elementInfo.zIndex, source: elementInfo.source || null, content: elementInfo.content || null,
         ui: { x: transformX, y: transformY, width: el.offsetWidth, height: el.offsetHeight },
       };
-      if (itemData.type === 'text') {
+      
+      if (itemData.type === 'text' && elementInfo.style) {
+        const style = elementInfo.style;
+        const reactFontSize = style.reactFontSize || 70;
+        const renderScale = style.fontRenderScale || 1.0;
+        const scaledReactSize = reactFontSize * scaleFactor;
+        const finalRenderFontSize = Math.round(scaledReactSize * renderScale);
+
         itemData.textStyle = {
-            ...elementInfo.style,
-            fontSize: Math.round(elementInfo.style.fontSize * scaleFactor)
+            ...style,
+            fontSize: finalRenderFontSize
         };
       }
       return itemData;
@@ -202,13 +222,15 @@ function App() {
 
   const applyLayout = (layoutData) => {
     if (!canvasRef.current) return;
-    const scaleFactor = canvasRef.current.offsetWidth / VIDEO_WIDTH;
     const newElementsState = layoutData.map(itemData => {
-      let scaledStyle = itemData.textStyle ? { 
-        ...itemData.textStyle, 
-        fontSize: Math.round(itemData.textStyle.fontSize * scaleFactor) 
+      let restoredStyle = itemData.textStyle ? { 
+          ...defaultTextStyle,
+          ...itemData.textStyle,
+          reactFontSize: itemData.textStyle.reactFontSize || 70,
+          fontRenderScale: itemData.textStyle.fontRenderScale || 1.0,
+          boxPadding: itemData.textStyle.boxPadding || 10,
       } : null;
-      
+
       setTimeout(() => {
         const element = document.getElementById(itemData.id);
         if (element && itemData.ui) {
@@ -222,7 +244,8 @@ function App() {
 
       return {
         id: itemData.id, type: itemData.type, zIndex: itemData.zIndex,
-        source: itemData.source, content: itemData.content, style: scaledStyle,
+        source: itemData.source, content: itemData.content, 
+        style: restoredStyle,
       };
     });
     setElements(newElementsState);
@@ -261,19 +284,9 @@ function App() {
         const maxZIndex = prev.length > 0 ? Math.max(...prev.map(e => e.zIndex)) : 0;
         return [...prev, {
             id: newId, type: 'text', zIndex: maxZIndex + 1,
-            content: "Văn bản mới", style: { ...defaultTextStyle, fontSize: 50 }
+            content: "Văn bản mới", style: { ...defaultTextStyle, reactFontSize: 50 }
         }];
     });
-  };
-
-  const handleUpdateCookies = async () => {
-    const result = await window.electronAPI.updateCookies();
-    alert(result.message);
-  };
-
-  const handleUpdateDependencies = () => {
-    setLog(prev => prev + 'Đang yêu cầu cập nhật thư viện lõi...\n');
-    window.electronAPI.updateDependencies();
   };
 
   const handleBrowse = async () => {
@@ -284,7 +297,6 @@ function App() {
   const handleReset = () => {
     setElements(initialElements);
     setLog('');
-    setResults([]);
     setStatusText('Sẵn sàng');
     setProgress(0);
     if(urlInputRef.current) urlInputRef.current.value = '';
@@ -313,11 +325,13 @@ function App() {
         elementStyle = {
           ...elementStyle,
           fontFamily: style.fontFamily,
-          fontSize: `${style.fontSize}px`,
+          fontSize: `${style.reactFontSize}px`,
           color: style.fontColor,
           fontWeight: style.isBold ? 'bold' : 'normal',
           fontStyle: style.isItalic ? 'italic' : 'normal',
-          textShadow: `${style.outlineColor} 0px 0px ${style.outlineWidth}px, ${style.shadowColor} ${style.shadowDepth}px ${style.shadowDepth}px 2px`
+          textShadow: `${style.outlineColor} 0px 0px ${style.outlineWidth}px, ${style.shadowColor} ${style.shadowDepth}px ${style.shadowDepth}px 2px`,
+          backgroundColor: style.boxColor ? `${style.boxColor}${Math.round(style.boxOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent',
+          padding: style.boxColor ? `${style.boxPadding}px` : '0',
         };
       } else if (type === 'image' && source) {
         elementStyle.backgroundImage = `url('${source}')`;
@@ -344,11 +358,8 @@ function App() {
         <div className="cookie-modal-overlay">
           <div className="cookie-modal-content">
             <h3>Video Yêu Cầu Cookies</h3>
-            <p>Video này có thể là video riêng tư hoặc bị giới hạn, yêu cầu cookies để tải xuống.</p>
-            <div className="button-group">
-              <button onClick={handleUpdateCookiesAndRetry}>Cập Nhật Cookies và Thử Lại</button>
-              <button onClick={() => setIsCookieRequired(false)}>Đóng</button>
-            </div>
+            <p>Video này có thể là video riêng tư hoặc bị giới hạn, yêu cầu cookies để tải xuống. Vui lòng cập nhật file cookies.txt trong thư mục cài đặt và thử lại.</p>
+            <button onClick={() => setIsCookieRequired(false)}>Đóng</button>
           </div>
         </div>
       )}
@@ -372,11 +383,9 @@ function App() {
       <ControlsPane 
         refs={controlRefs}
         log={log}
-        results={results}
         isRendering={isRendering}
         statusText={statusText}
         progress={progress}
-        isRenderFinished={!isRendering && results.length > 0}
         onRunRender={handleRunRender}
         onAddImage={handleAddImage}
         onAddText={handleAddText}
@@ -385,8 +394,10 @@ function App() {
         encoder={encoder}
         onEncoderChange={(e) => setEncoder(e.target.value)}
         onOpenLogModal={() => setIsLogModalOpen(true)}
-        onUpdateCookies={handleUpdateCookies}
-        onUpdateDependencies={handleUpdateDependencies}
+        
+        // <<< THÊM 2 PROPS NÀY >>>
+        splitMode={splitMode}
+        onSplitModeChange={(e) => setSplitMode(e.target.value)}
       />
     </div>
   );
