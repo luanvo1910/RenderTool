@@ -67,9 +67,11 @@ function App() {
   const canvasRef = useRef(null);
 
   const jobStateRef = useRef();
+  
+  // <<< SỬA LỖI TẠI ĐÂY: Thêm 'splitMode' vào ref >>>
   useEffect(() => {
-    jobStateRef.current = { isRendering, urlQueue, currentQueueIndex };
-  }, [isRendering, urlQueue, currentQueueIndex]);
+    jobStateRef.current = { isRendering, urlQueue, currentQueueIndex, splitMode };
+  }, [isRendering, urlQueue, currentQueueIndex, splitMode]); // Thêm splitMode vào dependency array
 
 
   const selectedElement = elements.find(e => e.id === selectedElementId);
@@ -195,8 +197,8 @@ function App() {
   }, [log]);
 
 
+  // <<< SỬA LỖI TẠI ĐÂY: Đọc 'splitMode' từ ref >>>
   const runJob = (index, queue = urlQueue) => {
-    // ... (code không đổi) ...
     const url = queue[index]; 
     if (!url) {
         setIsRendering(false);
@@ -212,7 +214,10 @@ function App() {
     setProgress(0);
     setIsCookieRequired(false);
 
-    const durationValue = (splitMode === 'duration') 
+    // Đọc 'splitMode' mới nhất từ ref thay vì state
+    const { splitMode: currentSplitMode } = jobStateRef.current;
+
+    const durationValue = (currentSplitMode === 'duration') 
                             ? (durationInputRef.current ? durationInputRef.current.value : 120) 
                             : 0; 
 
@@ -551,7 +556,6 @@ function App() {
         onOpenLogModal={() => setIsLogModalOpen(true)}
         
         splitMode={splitMode}
-        // <<< SỬA LỖI TẠI ĐÂY: Sửa 'e.targe.value' thành 'e.target.value' >>>
         onSplitModeChange={(e) => setSplitMode(e.target.value)}
         
         queueStatus={queueStatus}
