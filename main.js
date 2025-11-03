@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const Store = require('electron-store');
-// const fontList = require('font-list'); // << ĐÃ XÓA
 const fs = require('fs');
 const os = require('os');
 const { autoUpdater } = require('electron-updater');
@@ -54,44 +53,61 @@ ipcMain.handle('templates:delete', (event, templateId) => {
   return true;
 });
 
-// =================================================================
-// <<< SỬA LỖI: Chỉ đọc font từ thư mục 'resources/assets' >>>
-// =================================================================
 ipcMain.handle('fonts:get', async () => {
   try {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
-    const fontsDir = path.join(resourcesPath, 'resources', 'assets');
+    const fontsDir = app.isPackaged 
+      ? path.join(resourcesPath, 'assets') // Build: [app.res]/assets
+      : path.join(resourcesPath, 'resources', 'assets'); // Dev: [project]/resources/assets
+
+    const readFontAsDataUrl = (filePath, mimeType) => {
+      try {
+        const fileData = fs.readFileSync(filePath);
+        const base64Data = fileData.toString('base64');
+        return `data:${mimeType};base64,${base64Data}`;
+      } catch (e) {
+        console.error(`Lỗi khi đọc file font: ${filePath}`, e);
+        return null;
+      }
+    };
     
-    // Tạo danh sách font cơ bản để dự phòng
-    const defaultFonts = ['Arial'];
+    const defaultFontPath = path.join(fontsDir, 'arial.ttf');
+    const defaultFonts = [{ 
+      name: 'Arial (Mặc định)', 
+      file: 'arial.ttf', 
+      dataUrl: readFontAsDataUrl(defaultFontPath, 'font/ttf')
+    }];
 
     if (!fs.existsSync(fontsDir)) {
         console.error(`Không tìm thấy thư mục font tại: ${fontsDir}`);
-        return defaultFonts;
+        return defaultFonts.filter(f => f.dataUrl); 
     }
 
     const fontFiles = fs.readdirSync(fontsDir);
-    const fontNames = fontFiles
+    const fontList = fontFiles
       .filter(file => file.toLowerCase().endsWith('.ttf') || file.toLowerCase().endsWith('.otf'))
       .map(file => {
-          // Lấy tên font (ví dụ: "Arial" từ "arial.ttf")
           let name = path.parse(file).name;
-          // Chuẩn hóa một số tên phổ biến
-          if (/arial/i.test(name)) name = 'Arial';
-          if (/times/i.test(name)) name = 'Times New Roman';
-          if (/comic/i.test(name)) name = 'Comic Sans MS';
-          if (/impact/i.test(name)) name = 'Impact';
-          if (/verdana/i.test(name)) name = 'Verdana';
-          if (/calibri/i.test(name)) name = 'Calibri';
-          // Trả về tên đã chuẩn hóa
-          return name.charAt(0).toUpperCase() + name.slice(1);
+          name = name.charAt(0).toUpperCase() + name.slice(1).replace(/-/g, ' ');
+          
+          const fullPath = path.join(fontsDir, file);
+          const mimeType = file.endsWith('.ttf') ? 'font/ttf' : 'font/otf';
+          
+          return { 
+            name: name, 
+            file: file, 
+            dataUrl: readFontAsDataUrl(fullPath, mimeType)
+          };
       });
     
-    // Trả về danh sách font đã được chuẩn hóa và loại bỏ trùng lặp
-    return [...new Set([...defaultFonts, ...fontNames])];
+    const allFonts = [...defaultFonts, ...fontList].filter(f => f.dataUrl); 
+    const uniqueFonts = Array.from(new Map(allFonts.map(font => [font.file, font])).values());
+    
+    return uniqueFonts;
+
   } catch (err) {
-    console.error("Lỗi khi đọc thư mục font:", err);
-    return ['Arial']; // Trả về font mặc định an toàn
+    console.error("Lỗi nghiêm trọng khi đọc thư mục font:", err);
+    return []; 
   }
 });
 
@@ -145,20 +161,30 @@ ipcMain.handle('cookies:update', async () => {
   }
 });
 
-
-// --- Xử lý chạy RENDER ---
 ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
+    
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
-    const pythonScriptPath = path.join(resourcesPath, 'editor.py');
+    const pythonScriptPath = app.isPackaged
+      ? path.join(resourcesPath, 'editor.py') 
+      : path.join(resourcesPath, 'editor.py');
+    const resourcesPathForPython = app.isPackaged
+      ? process.resourcesPath
+      : path.join(__dirname, 'resources'); 
+      
     const userDataPath = app.getPath('userData');
     const layoutFilePath = path.join(os.tmpdir(), `layout-${Date.now()}.json`);
     fs.writeFileSync(layoutFilePath, JSON.stringify(layout));
   
-    const pythonProcess = spawn('python', [
-      pythonScriptPath, '--resources-path', resourcesPath, '--user-data-path', userDataPath,
+    const args = [
+      pythonScriptPath, '--resources-path', resourcesPathForPython, '--user-data-path', userDataPath,
       '--url', url, '--parts', String(parts), '--save-path', savePath,
       '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
-    ], { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    ];
+
+    // <<< SỬA LỖI: Dùng 'py' thay vì 'python' >>>
+    const commandToRun = 'py';
+
+    const pythonProcess = spawn(commandToRun, args, { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
     
     pythonProcess.stdout.on('data', data => {
       const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
@@ -184,7 +210,7 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
       }
     });
     pythonProcess.on('error', err => {
-      mainWindow.webContents.send('process:log', `FATAL_ERROR: Không thể khởi chạy Python. Hãy chắc chắn Python đã được cài đặt và thêm vào PATH hệ thống.`);
+      mainWindow.webContents.send('process:log', `FATAL_ERROR: Không thể khởi chạy Python (lỗi spawn). Hãy chắc chắn Python đã được cài đặt và thêm vào PATH hệ thống.`);
     });
     pythonProcess.on('close', code => {
       if (code === 403) {

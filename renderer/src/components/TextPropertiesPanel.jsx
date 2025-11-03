@@ -1,3 +1,5 @@
+// --- Tệp: TextPropertiesPanel.jsx ---
+
 import React from 'react';
 
 function TextPropertiesPanel({ element, systemFonts, onStyleChange }) {
@@ -8,6 +10,8 @@ function TextPropertiesPanel({ element, systemFonts, onStyleChange }) {
   const { style, content } = element;
 
   // Lấy giá trị mặc định nếu chưa có
+  // <<< SỬA ĐỔI: Đảm bảo fontFamily có giá trị mặc định là file >>>
+  const fontFamily = style.fontFamily || (systemFonts[0]?.file || 'arial.ttf');
   const reactFontSize = style.reactFontSize || 70;
   const fontRenderScale = style.fontRenderScale || 1.0;
   const fontColor = style.fontColor || '#FFFFFF';
@@ -35,14 +39,20 @@ function TextPropertiesPanel({ element, systemFonts, onStyleChange }) {
           </div>
       )}
      
+     {/* ======================================================= */}
+     {/* <<< SỬA ĐỔI DROPDOWN FONT TẠI ĐÂY >>> */}
+     {/* ======================================================= */}
       <div className="text-prop-group">
         <label>Font chữ:</label>
         <select
-          value={style.fontFamily}
+          value={fontFamily} // Giá trị là 'arial.ttf', 'impact.ttf', v.v.
           onChange={(e) => onStyleChange('fontFamily', e.target.value)}
         >
           {systemFonts.map(font => (
-            <option key={font} value={font}>{font}</option>
+            // Giá trị (value) là font.file, nhưng hiển thị cho người dùng là font.name
+            <option key={font.file} value={font.file}>
+              {font.name}
+            </option>
           ))}
         </select>
       </div>

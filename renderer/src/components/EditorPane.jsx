@@ -27,22 +27,15 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
     const { offsetWidth: canvasWidth, offsetHeight: canvasHeight } = canvas;
     const snapRange = 15; // Khoảng cách hít (pixel)
 
-    // Tạo các mục tiêu (grid) để "hít" vào
+    // <<< SỬA ĐỔI: Gộp thành MỘT lưới duy nhất >>>
+    // Tạo một lưới duy nhất có đường kẻ ở các cạnh (0, 0)
+    // và ở giữa (width/2, height/2)
     const snapTargets = [
-      // Hít vào các đường lề (0, 0, width, height)
       interact.snappers.grid({
-        x: canvasWidth,
-        y: canvasHeight,
+        x: canvasWidth / 2,   // Kẻ 1 đường dọc ở 50%
+        y: canvasHeight / 2,  // Kẻ 1 đường ngang ở 50%
         range: snapRange,
-        offset: { x: 0, y: 0 }
-      }),
-      
-      // Hít vào các đường giữa (ngang & dọc)
-      interact.snappers.grid({
-        x: canvasWidth / 2,
-        y: canvasHeight / 2,
-        range: snapRange,
-        offset: { x: canvasWidth / 2, y: canvasHeight / 2 }
+        offset: { x: 0, y: 0 } // Bắt đầu lưới ở (0, 0)
       }),
     ];
 
@@ -58,24 +51,22 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         }},
         inertia: true,
         modifiers: [
-          // 1. Giới hạn kéo thả bên trong cha
           interact.modifiers.restrictRect({ 
             restriction: "parent", 
             endOnly: true 
           }),
           
-          // 2. Thêm bộ điều chỉnh snap
           interact.modifiers.snap({
             targets: snapTargets,
             relativePoints: [
-              { x: 0.5, y: 0.5 }, // hít bằng tâm của đối tượng
+              { x: 0.5, y: 0.5 }, // hít bằng tâm
               { x: 0, y: 0.5 },   // hít bằng cạnh trái
               { x: 1, y: 0.5 },   // hít bằng cạnh phải
               { x: 0.5, y: 0 },   // hít bằng cạnh trên
               { x: 0.5, y: 1 },   // hít bằng cạnh dưới
             ],
             offset: 'parent',
-            endOnly: true
+            // endOnly: true // Đã xóa ở bước trước
           })
         ],
       })

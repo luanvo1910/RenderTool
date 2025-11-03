@@ -8,19 +8,26 @@ function ControlsPane(props) {
     encoder, onEncoderChange,
     onRunRender, onAddImage, onAddText, onBrowse, onReset,
     onOpenLogModal,
-    // <<< NHẬN 2 PROPS MỚI >>>
-    splitMode, onSplitModeChange
+    splitMode, onSplitModeChange,
+    // <<< NHẬN PROPS MỚI >>>
+    queueStatus 
   } = props;
   
   return (
     <div className="controls-pane">
       <h2>Bảng điều khiển</h2>
       <div className="control-group">
-        <label htmlFor="youtube-url">Link YouTube:</label>
-        <input type="text" id="youtube-url" ref={refs.urlInputRef} placeholder="Dán link video vào đây..." />
+        <label htmlFor="youtube-url">Link YouTube (Mỗi link 1 dòng):</label>
+        {/* <<< THAY ĐỔI: Chuyển <input> thành <textarea> >>> */}
+        <textarea 
+          id="youtube-url" 
+          ref={refs.urlInputRef} 
+          placeholder="Dán MỘT hoặc NHIỀU link YouTube, mỗi link một dòng..." 
+          rows="5"
+          disabled={isRendering}
+        />
       </div>
       
-      {/* <<< THÊM KHỐI MỚI NÀY >>> */}
       <div className="control-group">
         <label htmlFor="split-mode">Phương thức chia video:</label>
         <select id="split-mode" value={splitMode} onChange={onSplitModeChange} disabled={isRendering}>
@@ -29,20 +36,18 @@ function ControlsPane(props) {
         </select>
       </div>
 
-      {/* <<< THÊM LOGIC ẨN/HIỆN Ở ĐÂY >>> */}
       {splitMode === 'duration' && (
         <div className="control-group">
           <label htmlFor="part-duration">Thời lượng mỗi phần (giây):</label>
-          <input type="number" id="part-duration" ref={refs.durationInputRef} defaultValue="120" min="1" />
+          <input type="number" id="part-duration" ref={refs.durationInputRef} defaultValue="120" min="1" disabled={isRendering} />
         </div>
       )}
 
       <div className="control-group">
         <label htmlFor="parts-input">
-          {/* Đổi nhãn tùy theo chế độ */}
           {splitMode === 'duration' ? 'Số phần TỐI ĐA:' : 'Chia thành (Số phần):'}
         </label>
-        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" />
+        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" disabled={isRendering} />
       </div>
 
       <div className="control-group">
@@ -77,7 +82,8 @@ function ControlsPane(props) {
       <hr />
 
       <div className="status-container">
-        <p className="status-text">{statusText}</p>
+        {/* <<< THAY ĐỔI: Hiển thị queueStatus hoặc statusText >>> */}
+        <p className="status-text">{queueStatus || statusText}</p>
         <div className="progress-bar-container">
             <div className="progress-bar" style={{ width: `${progress}%` }}></div>
         </div>
@@ -85,7 +91,7 @@ function ControlsPane(props) {
 
       <div className="control-group action-buttons">
         <button id="runButton" onClick={onRunRender} disabled={isRendering}>
-          {isRendering ? 'ĐANG RENDER...' : 'BẮT ĐẦU RENDER'}
+          {isRendering ? 'ĐANG RENDER HÀNG ĐỢI...' : 'BẮT ĐẦU RENDER'}
         </button>
       </div>
 
@@ -97,8 +103,12 @@ function ControlsPane(props) {
         <pre id="log-output" ref={refs.logOutputRef}>{log}</pre>
       </div>
 
+      {/* <<< THAY ĐỔI: Nút Reset giờ sẽ là nút Hủy (nếu đang render) >>> */}
       {!isRendering && log.includes('--- Tiến trình kết thúc') && (
         <button id="newProjectButton" onClick={onReset}>Bắt đầu Project Mới</button>
+      )}
+      {isRendering && (
+         <button id="newProjectButton" onClick={onReset} style={{backgroundColor: '#ff3b30'}}>HỦY HÀNG ĐỢI</button>
       )}
     </div>
   );

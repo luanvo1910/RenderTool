@@ -6,7 +6,7 @@ import './App.css';
 
 const VIDEO_WIDTH = 720;
 const defaultTextStyle = {
-  fontFamily: 'Arial',
+  fontFamily: 'arial.ttf', 
   reactFontSize: 70,
   fontRenderScale: 1.0,
   fontColor: '#FFFFFF',
@@ -27,6 +27,7 @@ const initialElements = [
 ];
 
 function LogModal({ log, onClose }) {
+  // ... (code không đổi)
   return (
     <div className="log-modal-overlay" onClick={onClose}>
       <div className="log-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -52,9 +53,11 @@ function App() {
   const [isCookieRequired, setIsCookieRequired] = useState(false);
   const [statusText, setStatusText] = useState('Sẵn sàng');
   const [progress, setProgress] = useState(0);
-
-  // <<< THÊM STATE MỚI ĐỂ QUẢN LÝ CHẾ ĐỘ CHIA VIDEO >>>
-  const [splitMode, setSplitMode] = useState('duration'); // 'duration' hoặc 'equal'
+  const [splitMode, setSplitMode] = useState('duration');
+  
+  const [urlQueue, setUrlQueue] = useState([]);
+  const [currentQueueIndex, setCurrentQueueIndex] = useState(0);
+  const [queueStatus, setQueueStatus] = useState(''); 
 
   const urlInputRef = useRef(null);
   const durationInputRef = useRef(null);
@@ -63,97 +66,195 @@ function App() {
   const logOutputRef = useRef(null);
   const canvasRef = useRef(null);
 
+  const jobStateRef = useRef();
+  useEffect(() => {
+    jobStateRef.current = { isRendering, urlQueue, currentQueueIndex };
+  }, [isRendering, urlQueue, currentQueueIndex]);
+
+
   const selectedElement = elements.find(e => e.id === selectedElementId);
 
   useEffect(() => {
     loadAndRenderTemplates();
+    
     window.electronAPI.getFonts().then(fonts => {
+      // ... (code getFonts không đổi) ...
       if (fonts?.length > 0) {
         setSystemFonts(fonts);
+        const existingStyleEl = document.getElementById('dynamic-font-loader');
+        if (existingStyleEl) {
+          existingStyleEl.remove(); 
+        }
+        const styleEl = document.createElement('style');
+        styleEl.id = 'dynamic-font-loader';
+        const fontFaces = fonts.map(font => {
+          if (!font.dataUrl || !font.name) return '';
+          return `
+            @font-face {
+              font-family: "${font.name}"; 
+              src: url(${font.dataUrl});
+            }
+          `;
+        }).join('\n');
+        styleEl.innerHTML = fontFaces;
+        document.head.appendChild(styleEl);
+        const defaultFontFile = fonts[0]?.file || 'arial.ttf';
+        setElements(prev => prev.map(el => 
+            el.type === 'text' && el.style.fontFamily === 'arial.ttf' 
+            ? { ...el, style: { ...el.style, fontFamily: defaultFontFile }} 
+            : el
+        ));
+        initialElements[2].style = { ...defaultTextStyle, fontFamily: defaultFontFile };
       }
     });
 
+    // --- Listener Log (Xử lý hàng đợi) ---
     const removeLogListener = window.electronAPI.onProcessLog((logLine) => {
+        // Luôn đọc state mới nhất từ ref
+        const { isRendering, urlQueue, currentQueueIndex } = jobStateRef.current || {};
+
         if (logLine.startsWith('STATUS:')) {
             setStatusText(logLine.replace('STATUS:', '').trim());
         }
-        if (logLine.includes('PYTHON_ERROR:') || logLine.includes('FATAL_ERROR:') || logLine.includes('--- Tiến trình') || logLine.includes('--- Quá trình')) {
-          setIsRendering(false);
-          if (logLine.includes('ERROR')) {
-              setStatusText('Đã xảy ra lỗi!');
-          } else {
-              setStatusText('Hoàn tất!');
-          }
+
+        if (logLine.includes('FATAL_ERROR:')) {
+            setIsRendering(false); 
+            setQueueStatus(`LỖI NGHIÊM TRỌNG! Đã dừng hàng đợi.`);
+            setStatusText('Đã xảy ra lỗi nghiêm trọng!');
+            setUrlQueue([]);
+            setCurrentQueueIndex(0);
+        } 
+        else if (logLine.includes('PYTHON_ERROR:') && !logLine.includes('WARNING:')) {
+            setIsRendering(false); 
+            setQueueStatus(`LỖI PYTHON! Đã dừng hàng đợi.`);
+            setStatusText('Đã xảy ra lỗi Python!');
+            setUrlQueue([]);
+            setCurrentQueueIndex(0);
+        }
+
+        if (logLine.includes('--- Tiến trình kết thúc')) {
+            if (isRendering && urlQueue.length > 0) {
+                const nextIndex = currentQueueIndex + 1;
+                if (nextIndex < urlQueue.length) {
+                    runJob(nextIndex, urlQueue); // Chạy job tiếp theo
+                } else {
+                    // Hàng đợi hoàn tất
+                    setIsRendering(false);
+                    setQueueStatus(`Hoàn tất! Đã render ${urlQueue.length} video.`);
+                    setStatusText('Sẵn sàng');
+                    setUrlQueue([]);
+                    setCurrentQueueIndex(0);
+                    setProgress(100);
+                }
+            } else {
+                // Trường hợp chạy 1 link (không trong queue) hoặc đã bị hủy
+                setIsRendering(false);
+                setStatusText('Hoàn tất!');
+                setProgress(100);
+            }
         }
         setLog(prev => prev + logLine + '\n');
       });
   
+    // --- Listener Progress (Rút gọn thông báo) ---
     const removeProgressListener = window.electronAPI.onProcessProgress(({ type, value }) => {
       setProgress(value);
-      if (type === 'DOWNLOAD') {
-        setStatusText(`Đang tải video... ${Math.round(value)}%`);
-      } else if (type === 'RENDER') {
-        setStatusText(`Đang render... ${Math.round(value)}%`);
-      } else if (type === 'DONE') {
+      if (type === 'DONE') {
         setProgress(100);
       }
     });
   
+    // --- Các Listener khác ---
     const removeContextMenuListener = window.electronAPI.onContextMenuCommand(({ action, elementId }) => {
       handleLayerAction(action, elementId);
     });
   
     const removeCookieListener = window.electronAPI.onCookieRequired(() => {
         setLog(prev => prev + 'ERROR: Video này yêu cầu cookies để tải. Vui lòng cập nhật cookies.' + '\n');
-        setIsRendering(false);
+        setIsRendering(false); 
         setIsCookieRequired(true);
         setStatusText('Lỗi! Cần cập nhật cookies.');
+        setQueueStatus('Lỗi Cookies! Đã dừng hàng đợi.');
+        setUrlQueue([]);
     });
   
+    // Cleanup
     return () => {
       removeLogListener();
       removeProgressListener();
       removeContextMenuListener();
       removeCookieListener();
     };
-  }, []);
+  }, []); // Chạy 1 lần duy nhất
 
   useEffect(() => {
+    // ... (code không đổi) ...
     if (logOutputRef.current) {
       logOutputRef.current.scrollTop = logOutputRef.current.scrollHeight;
     }
   }, [log]);
 
-  // <<< CẬP NHẬT HÀM NÀY >>>
-  const handleRunRender = () => {
-    if (!urlInputRef.current.value) return alert('Vui lòng nhập link YouTube.');
-    if (isRendering) return;
-    setLog('Bắt đầu gửi dữ liệu layout và xử lý...\n');
-    setIsRendering(true);
-    setIsCookieRequired(false);
-    setStatusText('Bắt đầu...');
+
+  const runJob = (index, queue = urlQueue) => {
+    // ... (code không đổi) ...
+    const url = queue[index]; 
+    if (!url) {
+        setIsRendering(false);
+        setQueueStatus('Lỗi hàng đợi!');
+        setUrlQueue([]);
+        return;
+    }
+
+    setCurrentQueueIndex(index);
+    setQueueStatus(`Đang xử lý link ${index + 1}/${queue.length}:`);
+    setStatusText(`Bắt đầu...`); 
+    setLog(prev => prev + `\n--- Bắt đầu Link ${index + 1}/${queue.length}: ${url} ---\n`);
     setProgress(0);
-    
-    // Quyết định giá trị partDuration dựa trên splitMode
+    setIsCookieRequired(false);
+
     const durationValue = (splitMode === 'duration') 
-                            ? durationInputRef.current.value 
-                            : 0; // Gửi 0 để Python tự chia đều
+                            ? (durationInputRef.current ? durationInputRef.current.value : 120) 
+                            : 0; 
 
     window.electronAPI.runProcessWithLayout({
-      url: urlInputRef.current.value,
+      url: url, 
       parts: partsInputRef.current.value,
-      partDuration: durationValue, // Gửi giá trị đã tính toán
+      partDuration: durationValue, 
       savePath: savePathInputRef.current.value,
       layout: captureLayoutData(),
       encoder: encoder,
     });
   };
 
+
+  const handleRunRender = () => {
+    // ... (code không đổi) ...
+    const urlsText = urlInputRef.current.value;
+    if (!urlsText) return alert('Vui lòng nhập ít nhất một link YouTube.');
+    if (isRendering) return;
+
+    const urls = urlsText.split('\n')
+                         .map(url => url.trim())
+                         .filter(url => url.startsWith('http'));
+    
+    if (urls.length === 0) return alert('Không tìm thấy link YouTube hợp lệ. (Phải bắt đầu bằng http và mỗi link 1 dòng).');
+
+    setLog(`Bắt đầu render hàng đợi ${urls.length} link...\n`);
+    setIsRendering(true);
+    setQueueStatus(`Đã xếp ${urls.length} link vào hàng đợi.`);
+    setUrlQueue(urls); 
+    setCurrentQueueIndex(0); 
+
+    runJob(0, urls);
+  };
+
   const handleElementSelect = (elementId) => {
+    // ... (code không đổi) ...
     setSelectedElementId(elementId);
   };
 
   const handleStyleChange = (property, value) => {
+    // ... (code không đổi) ...
     if (!selectedElementId) return;
     setElements(prevElements =>
       prevElements.map(el =>
@@ -170,6 +271,7 @@ function App() {
   };
 
   const handleLayerAction = (action, elementId) => {
+    // ... (code không đổi) ...
     setElements(currentElements => {
       const newElements = [...currentElements].sort((a, b) => a.zIndex - b.zIndex);
       const currentIndex = newElements.findIndex(el => el.id === elementId);
@@ -187,13 +289,16 @@ function App() {
   };
 
   const captureLayoutData = () => {
+    // ... (code không đổi) ...
     if (!canvasRef.current) return [];
     const scaleFactor = VIDEO_WIDTH / canvasRef.current.offsetWidth;
+    
     return elements.map(elementInfo => {
       const el = document.getElementById(elementInfo.id);
       if (!el) return null;
       const transformX = parseFloat(el.getAttribute('data-x')) || 0;
       const transformY = parseFloat(el.getAttribute('data-y')) || 0;
+      
       const itemData = {
         id: el.id, type: el.dataset.type,
         x: Math.round((el.offsetLeft + transformX) * scaleFactor),
@@ -208,6 +313,7 @@ function App() {
         const style = elementInfo.style;
         const reactFontSize = style.reactFontSize || 70;
         const renderScale = style.fontRenderScale || 1.0;
+        
         const scaledReactSize = reactFontSize * scaleFactor;
         const finalRenderFontSize = Math.round(scaledReactSize * renderScale);
 
@@ -221,11 +327,13 @@ function App() {
   };
 
   const applyLayout = (layoutData) => {
+    // ... (code không đổi) ...
     if (!canvasRef.current) return;
     const newElementsState = layoutData.map(itemData => {
       let restoredStyle = itemData.textStyle ? { 
           ...defaultTextStyle,
           ...itemData.textStyle,
+          fontFamily: itemData.textStyle.fontFamily || 'arial.ttf', 
           reactFontSize: itemData.textStyle.reactFontSize || 70,
           fontRenderScale: itemData.textStyle.fontRenderScale || 1.0,
           boxPadding: itemData.textStyle.boxPadding || 10,
@@ -252,22 +360,26 @@ function App() {
   };
 
   const loadAndRenderTemplates = async () => {
+    // ... (code không đổi) ...
     const fetchedTemplates = await window.electronAPI.getTemplates();
     setTemplates(fetchedTemplates);
   };
 
   const handleSaveTemplate = async (templateName) => {
+    // ... (code không đổi) ...
     const newTemplate = { id: `template-${Date.now()}`, name: templateName, layout: captureLayoutData() };
     await window.electronAPI.saveTemplate(newTemplate);
     loadAndRenderTemplates();
   };
 
   const handleDeleteTemplate = async (templateId) => {
+    // ... (code không đổi) ...
     await window.electronAPI.deleteTemplate(templateId);
     loadAndRenderTemplates();
   };
 
   const handleAddImage = async () => {
+    // ... (code không đổi) ...
     const dataUrl = await window.electronAPI.openImageDialog();
     if (dataUrl) {
       const newId = `image-${Date.now()}`;
@@ -279,6 +391,7 @@ function App() {
   };
 
   const handleAddText = () => {
+    // ... (code không đổi) ...
     const newId = `text-${Date.now()}`;
     setElements(prev => {
         const maxZIndex = prev.length > 0 ? Math.max(...prev.map(e => e.zIndex)) : 0;
@@ -290,20 +403,36 @@ function App() {
   };
 
   const handleBrowse = async () => {
+    // ... (code không đổi) ...
     const path = await window.electronAPI.openDirectoryDialog();
     if (path) savePathInputRef.current.value = path;
   };
 
   const handleReset = () => {
+    // ... (code không đổi) ...
+    if (isRendering) {
+        if (window.confirm("Bạn có chắc muốn hủy hàng đợi render? (Video hiện tại sẽ hoàn tất và dừng lại)")) {
+            setUrlQueue([]); 
+            setQueueStatus('Đang hủy... Chờ video hiện tại hoàn tất.');
+        }
+        return;
+    }
+
     setElements(initialElements);
     setLog('');
     setStatusText('Sẵn sàng');
     setProgress(0);
     if(urlInputRef.current) urlInputRef.current.value = '';
     if(savePathInputRef.current) savePathInputRef.current.value = '';
+    
+    setIsRendering(false);
+    setUrlQueue([]);
+    setCurrentQueueIndex(0);
+    setQueueStatus('');
   };
   
   const handleUpdateCookiesAndRetry = async () => {
+    // ... (code không đổi) ...
     setIsCookieRequired(false);
     const result = await window.electronAPI.updateCookies();
     if (result.success) {
@@ -314,25 +443,50 @@ function App() {
   };
 
   const renderCanvasChildren = () => {
+    // ... (code không đổi) ...
     const sortedElements = [...elements].sort((a, b) => a.zIndex - b.zIndex);
+    
+    const canvasWidth = canvasRef.current ? canvasRef.current.offsetWidth : (360 * 1.2);
+    const targetWidth = VIDEO_WIDTH; 
+    const previewScale = canvasWidth / targetWidth;
+
     return sortedElements.map(elementInfo => {
       const { id, type, zIndex, source, style, content } = elementInfo;
       const isSelected = selectedElementId === id;
       const classNames = `edit-item ${type}-item ${isSelected ? 'selected' : ''}`;
       
       let elementStyle = { zIndex };
+      let pStyle = {}; 
+
       if (type === 'text' && style) {
+        const fontName = systemFonts.find(f => f.file === style.fontFamily)?.name || style.fontFamily;
+        
+        const scaledOutlineWidth = (style.outlineWidth || 0) * previewScale;
+        const scaledShadowDepth = (style.shadowDepth || 0) * previewScale;
+        const scaledBoxPadding = (style.boxPadding || 0) * previewScale;
+
         elementStyle = {
           ...elementStyle,
-          fontFamily: style.fontFamily,
+          fontFamily: fontName, 
           fontSize: `${style.reactFontSize}px`,
           color: style.fontColor,
           fontWeight: style.isBold ? 'bold' : 'normal',
           fontStyle: style.isItalic ? 'italic' : 'normal',
-          textShadow: `${style.outlineColor} 0px 0px ${style.outlineWidth}px, ${style.shadowColor} ${style.shadowDepth}px ${style.shadowDepth}px 2px`,
-          backgroundColor: style.boxColor ? `${style.boxColor}${Math.round(style.boxOpacity * 255).toString(16).padStart(2, '0')}` : 'transparent',
-          padding: style.boxColor ? `${style.boxPadding}px` : '0',
+          textShadow: `${style.shadowColor} ${scaledShadowDepth}px ${scaledShadowDepth}px 2px`,
+          WebkitTextStroke: `${scaledOutlineWidth}px ${style.outlineColor}`,
+          textStroke: `${scaledOutlineWidth}px ${style.outlineColor}`,
         };
+        
+        if (style.boxColor) {
+            pStyle = {
+                backgroundColor: `${style.boxColor}${Math.round(style.boxOpacity * 255).toString(16).padStart(2, '0')}`,
+                padding: `${scaledBoxPadding}px`,
+                display: 'inline-block',
+                maxWidth: '100%',
+                boxSizing: 'border-box', 
+            };
+        }
+
       } else if (type === 'image' && source) {
         elementStyle.backgroundImage = `url('${source}')`;
       }
@@ -343,7 +497,7 @@ function App() {
           className={classNames} style={elementStyle}
           onClick={(e) => { e.stopPropagation(); handleElementSelect(id); }}
         >
-          {content ? <p>{content}</p> : <p>{type.toUpperCase()}</p>}
+          <p style={pStyle}>{content ? content : type.toUpperCase()}</p>
         </div>
       );
     });
@@ -353,6 +507,7 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* ... (code modal không đổi) ... */}
       {isLogModalOpen && <LogModal log={log} onClose={() => setIsLogModalOpen(false)} />}
       {isCookieRequired && (
         <div className="cookie-modal-overlay">
@@ -395,9 +550,11 @@ function App() {
         onEncoderChange={(e) => setEncoder(e.target.value)}
         onOpenLogModal={() => setIsLogModalOpen(true)}
         
-        // <<< THÊM 2 PROPS NÀY >>>
         splitMode={splitMode}
+        // <<< SỬA LỖI TẠI ĐÂY: Sửa 'e.targe.value' thành 'e.target.value' >>>
         onSplitModeChange={(e) => setSplitMode(e.target.value)}
+        
+        queueStatus={queueStatus}
       />
     </div>
   );

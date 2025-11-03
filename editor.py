@@ -10,7 +10,7 @@ import base64
 import io
 import threading
 import yt_dlp
-import math # Thêm thư viện math để làm tròn
+import math
 
 # --- BẢN VÁ LỖI UTF-8 ---
 if sys.stdout.encoding != 'utf-8': sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -33,7 +33,6 @@ def hex_to_ffmpeg_color(hex_color, alpha='ff'):
         return "0xFFFFFFFF"
 
 def ffmpeg_safe_path(path):
-    """Bảo vệ (escape) các ký tự đặc biệt trong đường dẫn cho FFMPEG."""
     path = path.replace("\\", "/")
     if sys.platform == "win32":
         return path.replace(":", "\\:")
@@ -41,6 +40,7 @@ def ffmpeg_safe_path(path):
 
 # --- LOGIC TẢI XUỐNG BẰNG THƯ VIỆN YT-DLP ---
 def ytdlp_progress_hook(d):
+    # Hàm này vẫn gửi % download, nhưng đã bị 'quiet: True' vô hiệu hóa
     if d['status'] == 'downloading':
         try:
             percent_str = d.get('_percent_str', '0.0%').replace('%','').strip()
@@ -62,12 +62,18 @@ def fetch_video_metadata(url, cookies_path):
 
 def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
     output_template = os.path.splitext(dest_path)[0]
+    
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best', 'merge_output_format': 'mp4',
         'outtmpl': f'{output_template}.%(ext)s',
         'ffmpeg_location': os.path.dirname(ffmpeg_path),
-        'progress_hooks': [ytdlp_progress_hook], 'concurrent_fragments': 10, 'noplaylist': True,
+        'progress_hooks': [ytdlp_progress_hook], 
+        'concurrent_fragments': 10, 
+        'noplaylist': True,
+        'quiet': True, # Tắt log % download
+        'no_warnings': True, # Tắt log cảnh báo
     }
+    
     if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
@@ -98,7 +104,7 @@ def run_command_with_live_output(cmd, total_duration=None):
                     h, m, s, ms = map(int, match.groups())
                     current_time_seconds = h * 3600 + m * 60 + s + ms / 100
                     percent = min(100, (current_time_seconds / total_duration) * 100)
-                    print(f"PROGRESS:RENDER:{'%.2f' % percent}", flush=True)
+                    # print(f"PROGRESS:RENDER:{'%.2f' % percent}", flush=True) # Đã tắt
                     continue
             if trimmed_line: print(trimmed_line, flush=True)
     stdout_thread = threading.Thread(target=stream_reader, args=(process.stdout, stdout_output))
@@ -112,25 +118,11 @@ def download_thumbnail(thumbnail_url, dest_path):
     urllib.request.urlretrieve(thumbnail_url, dest_path)
     if not os.path.exists(dest_path): raise FileNotFoundError("Could not download thumbnail")
 
-# =================================================================
-# <<< SỬA LỖI FONT: Dùng `fontfile` trỏ trực tiếp vào `resources/assets` >>>
-# =================================================================
 def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_path):
     layout.sort(key=lambda x: int(x.get('zIndex', 0)))
     filters, last_stream = ["color=s=720x1280:c=black[canvas]"], "canvas"
     overlay_count = 0
     
-    # Map tên font "đẹp" (từ UI) sang tên file font (trong assets)
-    # HÃY ĐẢM BẢO CÁC FILE NÀY TỒN TẠI TRONG `resources/assets`
-    font_name_map = {
-        "Arial": "arial.ttf",
-        "Times New Roman": "times.ttf",
-        "Impact": "impact.ttf",
-        "Verdana": "verdana.ttf",
-        "Comic Sans MS": "comic.ttf",
-        "Calibri": "calibri.ttf" 
-    }
-
     for item in layout:
         if item.get('type') == 'text' or item.get('id') not in input_map: continue
         input_index, w, h, x, y = input_map[item['id']], item['width'], item['height'], item['x'], item['y']
@@ -150,24 +142,20 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
         border_w = style.get("outlineWidth", 2); border_color = hex_to_ffmpeg_color(style.get("outlineColor", "#000000"))
         shadow_color = hex_to_ffmpeg_color(style.get("shadowColor", "#000000"), "80")
         shadow_x = style.get("shadowDepth", 2); shadow_y = style.get("shadowDepth", 2)
-        font_family_name = style.get("fontFamily", "Arial").replace("'", "").replace(":", "\\:")
+        font_family_name = style.get("fontFamily", "arial.ttf").replace("'", "").replace(":", "\\:")
         text_x = item['x'] + (item['width'] / 2); text_y = item['y'] + (item['height'] / 2)
         box_color_hex = style.get("boxColor", "#000000")
-        box_opacity = style.get("boxOpacity", 0.0)
+        box_opacity = style.get("boxOpacity", 0.5) 
         box_padding = style.get("boxPadding", 10) 
         box_opacity_hex = format(int(box_opacity * 255), 'x').zfill(2)
         box_color_ffmpeg = hex_to_ffmpeg_color(box_color_hex, box_opacity_hex)
-        
-        # 1. Lấy tên file từ map, nếu không có thì mặc định là arial.ttf
-        font_filename = font_name_map.get(font_family_name, "arial.ttf")
-        # 2. Tạo đường dẫn tuyệt đối đến file font
-        font_file_path = os.path.join(resources_path, 'resources', 'assets', font_filename)
-        # 3. Làm cho đường dẫn an toàn với FFMPEG
+        font_filename = font_family_name if font_family_name else "arial.ttf"
+        font_file_path = os.path.join(resources_path, 'assets', font_filename)
         safe_font_file_path = ffmpeg_safe_path(font_file_path)
 
         drawtext_filter = (
             f"drawtext="
-            f"fontfile='{safe_font_file_path}':" # <-- SỬ DỤNG `fontfile` THAY VÌ `fontdir`
+            f"fontfile='{safe_font_file_path}':" 
             f"text='{text_to_draw}':"
             f"fontsize={font_size}:"
             f"fontcolor={font_color}:"
@@ -209,24 +197,17 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         if not total_duration: raise Exception("Could not get video duration.")
         sanitized_title = sanitize_filename(title)
         
-        # =================================================================
-        # <<< SỬA LỖI LOGIC CHIA PART TẠI ĐÂY >>>
-        # =================================================================
         try:
             part_duration = float(part_duration)
         except ValueError:
             part_duration = 0.0
 
         if part_duration <= 0: 
-            # Chế độ "Chia đều": Ưu tiên num_parts
             actual_num_parts = num_parts
-            # Thêm 0.001 để tránh lỗi làm tròn
-            part_duration = (total_duration + 0.001) / num_parts 
+            # <<< SỬA LỖI TẠI ĐÂY: Xóa + 0.001 >>>
+            part_duration = total_duration / num_parts 
         else:
-            # Chế độ "Theo thời lượng": Ưu tiên part_duration
-            # Dùng math.floor để đảm bảo tính đúng số part
             actual_num_parts = min(num_parts, math.floor(total_duration / part_duration))
-        # =================================================================
         
         print("STATUS: Tải video chính...", flush=True)
         main_video_path = os.path.join(temp_dir, f"{video_id}.mp4")
@@ -239,7 +220,10 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         
         for i in range(actual_num_parts):
             part_num = i + 1; start_time = i * part_duration
-            if start_time >= total_duration: break
+            
+            # <<< SỬA LỖI TẠI ĐÂY: Vô hiệu hóa dòng kiểm tra lỗi >>>
+            # if start_time >= total_duration: break
+            
             output_path = os.path.join(output_dir, f"{sanitized_title}_Part_{part_num}.mp4")
             print(f"STATUS: Render Part {part_num}/{actual_num_parts}...", flush=True)
             cmd = [ffmpeg_path, '-y', '-progress', '-', '-nostats', '-i', main_video_path, '-i', thumbnail_path]
@@ -268,7 +252,6 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         print("STATUS: Hoàn tất tất cả các phần!", flush=True)
     except Exception as e:
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        sys.exit(1)
     finally:
         print("STATUS: Dọn dẹp file tạm...", flush=True)
         if os.path.exists(temp_dir): 
@@ -285,7 +268,8 @@ if __name__ == "__main__":
     parser.add_argument('--layout-file', type=str, required=True)
     parser.add_argument('--parts', type=int, default=1)
     parser.add_argument('--save-path', type=str, default="")
-    parser.add_argument('--part-duration', type=str, default="0") # Nhận part-duration_str
+    parser.add_argument('--part-duration', type=str, default="0")
     parser.add_argument('--encoder', type=str, default='libx264')
     args = parser.parse_args()
+    
     process_video(args.url, args.parts, args.save_path, args.part_duration, args.layout_file, args.encoder, args.resources_path, args.user_data_path)
