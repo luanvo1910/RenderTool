@@ -134,12 +134,11 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
     for item in layout:
         if item.get('type') == 'text' or item.get('id') not in input_map: continue
         
-        # <<< SỬA LỖI 1: Thêm .get() để tránh lỗi NoneType >>>
         input_index = input_map.get(item['id'])
-        w = item.get('width', 720) # Mặc định là 720 nếu thiếu
-        h = item.get('height', 1280) # Mặc định là 1280 nếu thiếu
-        x = item.get('x', 0) # Mặc định là 0 nếu thiếu
-        y = item.get('y', 0) # Mặc định là 0 nếu thiếu
+        w = item.get('width', 720) 
+        h = item.get('height', 1280)
+        x = item.get('x', 0) 
+        y = item.get('y', 0) 
         
         scaled_stream, output_stream = f"s{overlay_count}", f"bg{overlay_count + 1}"
         
@@ -162,13 +161,11 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
         shadow_x = style.get("shadowDepth", 2); shadow_y = style.get("shadowDepth", 2)
         font_family_name = style.get("fontFamily", "arial.ttf").replace("'", "").replace(":", "\\:")
 
-        # <<< SỬA LỖI 1: Thêm .get() để tránh lỗi NoneType >>>
         text_x_base = item.get('x', 0)
-        text_w_base = item.get('width', 720) # Mặc định 720
+        text_w_base = item.get('width', 720) 
         text_y_base = item.get('y', 0)
-        text_h_base = item.get('height', 100) # Mặc định 100
+        text_h_base = item.get('height', 100)
         
-        # Tính toán dựa trên giá trị an toàn
         text_x = (text_x_base or 0) + ((text_w_base or 720) / 2)
         text_y = (text_y_base or 0) + ((text_h_base or 100) / 2)
 
@@ -230,11 +227,21 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         except ValueError:
             part_duration = 0.0
 
+        # =================================================================
+        # <<< SỬA LỖI TẠI ĐÂY: Thay math.floor bằng math.ceil >>>
+        # =================================================================
         if part_duration <= 0: 
             actual_num_parts = num_parts
             part_duration = total_duration / num_parts 
         else:
-            actual_num_parts = min(num_parts, math.floor(total_duration / part_duration))
+            # Code cũ: actual_num_parts = min(num_parts, math.floor(total_duration / part_duration))
+            # Code mới:
+            total_parts_by_duration = math.ceil(total_duration / part_duration)
+            actual_num_parts = min(num_parts, total_parts_by_duration)
+        
+        # Đảm bảo số nguyên
+        actual_num_parts = int(actual_num_parts)
+        # =================================================================
         
         print("STATUS: Tải video chính...", flush=True)
         main_video_path = os.path.join(temp_dir, f"{video_id}.mp4")
