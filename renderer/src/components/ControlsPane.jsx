@@ -9,8 +9,13 @@ function ControlsPane(props) {
     onRunRender, onAddImage, onAddText, onBrowse, onReset,
     onOpenLogModal,
     splitMode, onSplitModeChange,
-    // <<< NHẬN PROPS MỚI >>>
-    queueStatus 
+    // <<< NHẬN PROPS MỚI CHO UPDATE >>>
+    updateStatus,
+    isUpdateAvailable,
+    isDownloadingUpdate,
+    isUpdateDownloaded,
+    onDownloadUpdate,
+    onInstallUpdate
   } = props;
   
   return (
@@ -18,19 +23,18 @@ function ControlsPane(props) {
       <h2>Bảng điều khiển</h2>
       <div className="control-group">
         <label htmlFor="youtube-url">Link YouTube (Mỗi link 1 dòng):</label>
-        {/* <<< THAY ĐỔI: Chuyển <input> thành <textarea> >>> */}
         <textarea 
           id="youtube-url" 
           ref={refs.urlInputRef} 
           placeholder="Dán MỘT hoặc NHIỀU link YouTube, mỗi link một dòng..." 
           rows="5"
-          disabled={isRendering}
+          disabled={isRendering || isDownloadingUpdate}
         />
       </div>
       
       <div className="control-group">
         <label htmlFor="split-mode">Phương thức chia video:</label>
-        <select id="split-mode" value={splitMode} onChange={onSplitModeChange} disabled={isRendering}>
+        <select id="split-mode" value={splitMode} onChange={onSplitModeChange} disabled={isRendering || isDownloadingUpdate}>
           <option value="duration">Theo Thời lượng (giây)</option>
           <option value="equal">Chia đều (theo Số phần)</option>
         </select>
@@ -39,7 +43,7 @@ function ControlsPane(props) {
       {splitMode === 'duration' && (
         <div className="control-group">
           <label htmlFor="part-duration">Thời lượng mỗi phần (giây):</label>
-          <input type="number" id="part-duration" ref={refs.durationInputRef} defaultValue="120" min="1" disabled={isRendering} />
+          <input type="number" id="part-duration" ref={refs.durationInputRef} defaultValue="120" min="1" disabled={isRendering || isDownloadingUpdate} />
         </div>
       )}
 
@@ -47,20 +51,20 @@ function ControlsPane(props) {
         <label htmlFor="parts-input">
           {splitMode === 'duration' ? 'Số phần TỐI ĐA:' : 'Chia thành (Số phần):'}
         </label>
-        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" disabled={isRendering} />
+        <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" disabled={isRendering || isDownloadingUpdate} />
       </div>
 
       <div className="control-group">
         <label>Chức năng khác:</label>
         <div className="button-group">
-            <button id="addTextButton" onClick={onAddText} disabled={isRendering}>Thêm Văn bản</button>
-            <button id="addImageButton" onClick={onAddImage} disabled={isRendering}>Thêm Ảnh</button>
+            <button id="addTextButton" onClick={onAddText} disabled={isRendering || isDownloadingUpdate}>Thêm Văn bản</button>
+            <button id="addImageButton" onClick={onAddImage} disabled={isRendering || isDownloadingUpdate}>Thêm Ảnh</button>
         </div>
       </div>
       
       <div className="control-group">
         <label htmlFor="encoder-select">Encoder (Bộ mã hóa):</label>
-        <select id="encoder-select" value={encoder} onChange={onEncoderChange} disabled={isRendering}>
+        <select id="encoder-select" value={encoder} onChange={onEncoderChange} disabled={isRendering || isDownloadingUpdate}>
           <option value="libx264">Phần mềm (x264 - Tương thích nhất)</option>
           <option value="hevc_nvenc">Phần cứng (NVIDIA HEVC)</option>
           <option value="h264_nvenc">Phần cứng (NVIDIA H264)</option>
@@ -75,22 +79,43 @@ function ControlsPane(props) {
         <label htmlFor="save-path-input">Lưu vào thư mục:</label>
         <div className="input-group">
           <input type="text" id="save-path-input" ref={refs.savePathInputRef} placeholder="Mặc định là thư mục 'output'" readOnly />
-          <button id="browseButton" onClick={onBrowse} disabled={isRendering}>Chọn</button>
+          <button id="browseButton" onClick={onBrowse} disabled={isRendering || isDownloadingUpdate}>Chọn</button>
         </div>
       </div>
       
       <hr />
 
       <div className="status-container">
-        {/* <<< THAY ĐỔI: Hiển thị queueStatus hoặc statusText >>> */}
-        <p className="status-text">{queueStatus || statusText}</p>
+        {/* <<< SỬA ĐỔI: Ưu tiên hiển thị thông báo update/render >>> */}
+        <p className="status-text">{updateStatus || (isRendering ? statusText : 'Sẵn sàng')}</p>
         <div className="progress-bar-container">
             <div className="progress-bar" style={{ width: `${progress}%` }}></div>
         </div>
       </div>
 
+      {/* --- NÚT UPDATE (HIỂN THỊ CÓ ĐIỀU KIỆN) --- */}
+
+      {/* Hiển thị khi có update và CHƯA tải */}
+      {isUpdateAvailable && !isDownloadingUpdate && !isUpdateDownloaded && (
+        <div className="control-group action-buttons">
+          <button onClick={onDownloadUpdate} style={{backgroundColor: '#28a745'}}>
+            TẢI VỀ BẢN CẬP NHẬT
+          </button>
+        </div>
+      )}
+
+      {/* Hiển thị khi ĐÃ tải xong */}
+      {isUpdateDownloaded && (
+        <div className="control-group action-buttons">
+          <button onClick={onInstallUpdate} style={{backgroundColor: '#ffc107', color: '#111'}}>
+            KHỞI ĐỘNG LẠI ĐỂ CÀI ĐẶT
+          </button>
+        </div>
+      )}
+
+      {/* --- NÚT RENDER CHÍNH --- */}
       <div className="control-group action-buttons">
-        <button id="runButton" onClick={onRunRender} disabled={isRendering}>
+        <button id="runButton" onClick={onRunRender} disabled={isRendering || isDownloadingUpdate || isUpdateAvailable}>
           {isRendering ? 'ĐANG RENDER HÀNG ĐỢI...' : 'BẮT ĐẦU RENDER'}
         </button>
       </div>
@@ -103,8 +128,8 @@ function ControlsPane(props) {
         <pre id="log-output" ref={refs.logOutputRef}>{log}</pre>
       </div>
 
-      {/* <<< THAY ĐỔI: Nút Reset giờ sẽ là nút Hủy (nếu đang render) >>> */}
-      {!isRendering && log.includes('--- Tiến trình kết thúc') && (
+      {/* Nút Reset / Hủy */}
+      {(!isRendering && log.includes('--- Tiến trình kết thúc')) && !isUpdateAvailable && (
         <button id="newProjectButton" onClick={onReset}>Bắt đầu Project Mới</button>
       )}
       {isRendering && (

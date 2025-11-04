@@ -14,10 +14,10 @@ function TemplatePane({ templates, onSave, onLoad, onDelete }) {
   };
 
   const handleDeleteWithConfirmation = (e, templateId, templateName) => {
-      e.stopPropagation();
-      if (window.confirm(`Bạn có chắc muốn xóa mẫu "${templateName}"?`)) {
-          onDelete(templateId);
-      }
+    e.stopPropagation();
+    if (window.confirm(`Bạn có chắc muốn xóa mẫu "${templateName}"?`)) {
+      onDelete(templateId);
+    }
   }
 
   return (
@@ -32,7 +32,22 @@ function TemplatePane({ templates, onSave, onLoad, onDelete }) {
         ))}
       </div>
       <div className="save-template-group">
-        <input type="text" id="template-name-input" ref={templateNameInputRef} placeholder="Nhập tên mẫu để lưu..." />
+        <input
+          type="text"
+          id="template-name-input"
+          ref={templateNameInputRef}
+          style={{
+            width: '77%',
+            padding: '8px',
+            backgroundColor: 'var(--tertiary-bg)',
+            border: '1px solid var(--border-color)',
+            color: 'var(--primary-text)',
+            borderRadius: '4px',
+            boxSizing: 'border-box',
+          }}
+          placeholder="Nhập tên mẫu để lưu..."
+        />
+
         <button id="saveTemplateButton" onClick={handleSave}>Lưu</button>
       </div>
     </div>

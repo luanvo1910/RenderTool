@@ -10,6 +10,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
     systemFonts,
     onElementSelect,
     onStyleChange,
+    onElementUpdate
   } = props;
 
   useEffect(() => {
@@ -20,72 +21,95 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         interact('.edit-item').off();
     }
     
-    // =================================================================
-    // <<< SỬA LỖI TÍNH NĂNG SNAP (HÍT) TẠI ĐÂY >>>
-    // =================================================================
-    
     const { offsetWidth: canvasWidth, offsetHeight: canvasHeight } = canvas;
-    const snapRange = 15; // Khoảng cách hít (pixel)
+    const snapRange = 15;
 
-    // <<< SỬA ĐỔI: Gộp thành MỘT lưới duy nhất >>>
-    // Tạo một lưới duy nhất có đường kẻ ở các cạnh (0, 0)
-    // và ở giữa (width/2, height/2)
     const snapTargets = [
       interact.snappers.grid({
-        x: canvasWidth / 2,   // Kẻ 1 đường dọc ở 50%
-        y: canvasHeight / 2,  // Kẻ 1 đường ngang ở 50%
+        x: canvasWidth / 2,   
+        y: canvasHeight / 2,  
         range: snapRange,
-        offset: { x: 0, y: 0 } // Bắt đầu lưới ở (0, 0)
+        offset: { x: 0, y: 0 } 
       }),
     ];
 
     interact(".edit-item")
       .draggable({
-        listeners: { move(event) {
+        listeners: { 
+          move(event) {
             const target = event.target;
             const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
             const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
+            
             target.style.transform = `translate(${x}px, ${y}px)`;
+
             target.setAttribute("data-x", x);
             target.setAttribute("data-y", y);
-        }},
+          },
+          end(event) {
+            const target = event.target;
+            if (onElementUpdate) {
+              onElementUpdate(target.id, {
+                width: parseFloat(target.style.width),
+                height: parseFloat(target.style.height),
+                top: parseFloat(target.style.top),
+                left: parseFloat(target.style.left),
+                transformX: parseFloat(target.getAttribute("data-x")) || 0,
+                transformY: parseFloat(target.getAttribute("data-y")) || 0
+              });
+            }
+          }
+        },
         inertia: true,
         modifiers: [
           interact.modifiers.restrictRect({ 
             restriction: "parent", 
             endOnly: true 
           }),
-          
           interact.modifiers.snap({
             targets: snapTargets,
             relativePoints: [
-              { x: 0.5, y: 0.5 }, // hít bằng tâm
-              { x: 0, y: 0.5 },   // hít bằng cạnh trái
-              { x: 1, y: 0.5 },   // hít bằng cạnh phải
-              { x: 0.5, y: 0 },   // hít bằng cạnh trên
-              { x: 0.5, y: 1 },   // hít bằng cạnh dưới
+              { x: 0.5, y: 0.5 }, { x: 0, y: 0.5 }, { x: 1, y: 0.5 }, { x: 0.5, y: 0 }, { x: 0.5, y: 1 },
             ],
             offset: 'parent',
-            // endOnly: true // Đã xóa ở bước trước
           })
         ],
       })
       .resizable({
         edges: { top: true, left: true, bottom: true, right: true },
-        listeners: { move: function (event) {
+        listeners: { 
+          move: function (event) {
             const target = event.target;
             let x = parseFloat(target.getAttribute("data-x")) || 0;
             let y = parseFloat(target.getAttribute("data-y")) || 0;
+            
             target.style.width = `${event.rect.width}px`;
             target.style.height = `${event.rect.height}px`;
+            
             x += event.deltaRect.left;
             y += event.deltaRect.top;
             target.style.transform = `translate(${x}px, ${y}px)`;
+
             target.setAttribute("data-x", x);
             target.setAttribute("data-y", y);
-        }},
+          },
+          end(event) {
+            const target = event.target;
+             if (onElementUpdate) {
+              onElementUpdate(target.id, {
+                width: event.rect.width,
+                height: event.rect.height,
+                top: parseFloat(target.style.top),
+                left: parseFloat(target.style.left),
+                transformX: parseFloat(target.getAttribute("data-x")) || 0,
+                transformY: parseFloat(target.getAttribute("data-y")) || 0
+              });
+            }
+          }
+        },
         inertia: true,
       });
+
 
     interact("#element-properties").draggable({
         allowFrom: 'h4',
@@ -101,7 +125,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         }},
     });
 
-  }, [elements.length, ref]); // Thêm ref vào dependency array
+  }, [elements.length, ref, onElementUpdate]); 
 
   const handleContextMenu = (e) => {
     e.preventDefault();

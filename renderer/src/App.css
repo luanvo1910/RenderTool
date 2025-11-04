@@ -97,12 +97,8 @@ body {
   background-color: #ff3b30;
   color: white;
   border: none;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
   cursor: pointer;
   font-weight: bold;
-  line-height: 20px;
   text-align: center;
 }
 .template-item .delete-btn:hover {

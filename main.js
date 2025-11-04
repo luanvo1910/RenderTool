@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const Store = require('electron-store');
@@ -8,6 +8,13 @@ const { autoUpdater } = require('electron-updater');
 
 const store = new Store();
 let mainWindow;
+let cachedFonts = null;
+
+function sendUpdateMessage(channel, ...args) {
+  if (mainWindow) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -26,39 +33,12 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  createWindow();
-  if (!app.isPackaged) {
-    console.log('Update check skipped in development mode.');
-  } else {
-    autoUpdater.checkForUpdatesAndNotify();
-  }
-});
-
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-
-// --- CÁC HÀM XỬ LÝ IPC ---
-ipcMain.handle('templates:get', () => store.get('templates', []));
-ipcMain.handle('templates:save', (event, template) => {
-  const templates = store.get('templates', []);
-  const existingIndex = templates.findIndex(t => t.id === template.id);
-  if (existingIndex > -1) { templates[existingIndex] = template; } else { templates.push(template); }
-  store.set('templates', templates);
-  return true;
-});
-ipcMain.handle('templates:delete', (event, templateId) => {
-  const templates = store.get('templates', []);
-  store.set('templates', templates.filter(t => t.id !== templateId));
-  return true;
-});
-
-ipcMain.handle('fonts:get', async () => {
+async function loadFonts() {
   try {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     const fontsDir = app.isPackaged 
-      ? path.join(resourcesPath, 'assets') // Build: [app.res]/assets
-      : path.join(resourcesPath, 'resources', 'assets'); // Dev: [project]/resources/assets
+      ? path.join(resourcesPath, 'assets')
+      : path.join(resourcesPath, 'resources', 'assets');
 
     const readFontAsDataUrl = (filePath, mimeType) => {
       try {
@@ -80,7 +60,8 @@ ipcMain.handle('fonts:get', async () => {
 
     if (!fs.existsSync(fontsDir)) {
         console.error(`Không tìm thấy thư mục font tại: ${fontsDir}`);
-        return defaultFonts.filter(f => f.dataUrl); 
+        cachedFonts = defaultFonts.filter(f => f.dataUrl);
+        return cachedFonts;
     }
 
     const fontFiles = fs.readdirSync(fontsDir);
@@ -103,12 +84,49 @@ ipcMain.handle('fonts:get', async () => {
     const allFonts = [...defaultFonts, ...fontList].filter(f => f.dataUrl); 
     const uniqueFonts = Array.from(new Map(allFonts.map(font => [font.file, font])).values());
     
-    return uniqueFonts;
+    cachedFonts = uniqueFonts;
+    return cachedFonts;
 
   } catch (err) {
     console.error("Lỗi nghiêm trọng khi đọc thư mục font:", err);
+    cachedFonts = [];
     return []; 
   }
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  loadFonts();
+  if (!app.isPackaged) {
+    console.log('Update check skipped in development mode.');
+  } else {
+    autoUpdater.checkForUpdates();
+  }
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+// --- CÁC HÀM XỬ LÝ IPC ---
+ipcMain.handle('templates:get', () => store.get('templates', []));
+ipcMain.handle('templates:save', (event, template) => {
+  const templates = store.get('templates', []);
+  const existingIndex = templates.findIndex(t => t.id === template.id);
+  if (existingIndex > -1) { templates[existingIndex] = template; } else { templates.push(template); }
+  store.set('templates', templates);
+  return true;
+});
+ipcMain.handle('templates:delete', (event, templateId) => {
+  const templates = store.get('templates', []);
+  store.set('templates', templates.filter(t => t.id !== templateId));
+  return true;
+});
+
+ipcMain.handle('fonts:get', async () => {
+  if (cachedFonts) {
+    return cachedFonts;
+  }
+  return await loadFonts();
 });
 
 ipcMain.on('show-context-menu', (event, { elementId, elementType }) => {
@@ -133,11 +151,24 @@ ipcMain.handle('dialog:openImage', async () => {
   try {
     const filePath = filePaths[0];
     const fileData = fs.readFileSync(filePath);
+    
+    const image = nativeImage.createFromBuffer(fileData);
+    const size = image.getSize(); 
+
     const base64Data = fileData.toString('base64');
     const mimeType = `image/${path.extname(filePath).substring(1)}`;
-    return `data:${mimeType};base64,${base64Data}`;
-  } catch (error) { return null; }
+    
+    return {
+      dataUrl: `data:${mimeType};base64,${base64Data}`,
+      width: size.width,
+      height: size.height
+    };
+  } catch (error) { 
+    console.error("Lỗi đọc ảnh:", error);
+    return null; 
+  }
 });
+
 ipcMain.handle('dialog:openDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
   return canceled ? null : filePaths[0];
@@ -161,12 +192,14 @@ ipcMain.handle('cookies:update', async () => {
   }
 });
 
+
 ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
-    
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
+    
     const pythonScriptPath = app.isPackaged
-      ? path.join(resourcesPath, 'editor.py') 
-      : path.join(resourcesPath, 'editor.py');
+      ? path.join(resourcesPath, 'editor.py')
+      : path.join(resourcesPath, 'editor.py'); 
+      
     const resourcesPathForPython = app.isPackaged
       ? process.resourcesPath
       : path.join(__dirname, 'resources'); 
@@ -181,45 +214,54 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
       '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
     ];
 
-    // <<< SỬA LỖI: Dùng 'py' thay vì 'python' >>>
     const commandToRun = 'py';
 
     const pythonProcess = spawn(commandToRun, args, { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
     
-    pythonProcess.stdout.on('data', data => {
-      const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
-      for (const line of lines) {
-        const logLine = line.trim();
-        if (!logLine) continue;
-  
-        if (logLine.startsWith('PROGRESS:')) {
-          const parts = logLine.split(':');
-          const type = parts[1];
-          const value = parseFloat(parts[2]);
-          mainWindow.webContents.send('process:progress', { type, value });
-        } else {
-          mainWindow.webContents.send('process:log', logLine);
+    pythonProcess.stdout.on('data', (data) => {
+        const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
+        for (const line of lines) {
+            const logLine = line.trim();
+            if (!logLine) continue;
+            if (logLine.startsWith('PROGRESS:')) {
+                sendUpdateMessage('process:progress', { type: line.split(':')[1], value: parseFloat(line.split(':')[2]) });
+            } else {
+                sendUpdateMessage('process:log', logLine);
+            }
         }
-      }
     });
     
-    pythonProcess.stderr.on('data', data => {
-      const logLine = data.toString('utf8').trim();
-      if (logLine) {
-          mainWindow.webContents.send('process:log', `PYTHON_ERROR: ${logLine}`);
-      }
+    pythonProcess.stderr.on('data', (data) => sendUpdateMessage('process:log', `PYTHON_ERROR: ${data.toString('utf8').trim()}`));
+    pythonProcess.on('error', (err) => sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`));
+    pythonProcess.on('close', (code) => {
+        if (code === 403) sendUpdateMessage('process:cookie-required');
+        sendUpdateMessage('process:log', `--- Tiến trình kết thúc với mã ${code} ---`);
+        sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+        if (fs.existsSync(layoutFilePath)) fs.unlinkSync(layoutFilePath);
     });
-    pythonProcess.on('error', err => {
-      mainWindow.webContents.send('process:log', `FATAL_ERROR: Không thể khởi chạy Python (lỗi spawn). Hãy chắc chắn Python đã được cài đặt và thêm vào PATH hệ thống.`);
-    });
-    pythonProcess.on('close', code => {
-      if (code === 403) {
-        mainWindow.webContents.send('process:cookie-required');
-      }
-      mainWindow.webContents.send('process:log', `--- Tiến trình kết thúc với mã ${code} ---`);
-      mainWindow.webContents.send('process:progress', { type: 'DONE', value: 100 });
-      if (fs.existsSync(layoutFilePath)) {
-        fs.unlinkSync(layoutFilePath);
-      }
-    });
+});
+
+
+// --- Xử lý Auto-Update thủ công ---
+autoUpdater.on('update-available', (info) => {
+  sendUpdateMessage('update:available', info);
+});
+autoUpdater.on('update-not-available', (info) => {
+  sendUpdateMessage('update:message', 'Bạn đang dùng phiên bản mới nhất.');
+});
+autoUpdater.on('download-progress', (progressObj) => {
+  sendUpdateMessage('update:progress', progressObj.percent);
+});
+autoUpdater.on('update-downloaded', (info) => {
+  sendUpdateMessage('update:downloaded', info);
+});
+autoUpdater.on('error', (err) => {
+  sendUpdateMessage('update:message', `Lỗi cập nhật: ${err.message}`);
+});
+
+ipcMain.on('updater:start-download', () => {
+  autoUpdater.downloadUpdate();
+});
+ipcMain.on('updater:quit-and-install', () => {
+  autoUpdater.quitAndInstall();
 });

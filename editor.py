@@ -9,7 +9,7 @@ import shutil
 import base64
 import io
 import threading
-import yt_dlp
+import yt_dlp 
 import math
 
 # --- BẢN VÁ LỖI UTF-8 ---
@@ -40,7 +40,7 @@ def ffmpeg_safe_path(path):
 
 # --- LOGIC TẢI XUỐNG BẰNG THƯ VIỆN YT-DLP ---
 def ytdlp_progress_hook(d):
-    # Hàm này vẫn gửi % download, nhưng đã bị 'quiet: True' vô hiệu hóa
+    # Gửi % download (đã bị App.jsx ẩn đi)
     if d['status'] == 'downloading':
         try:
             percent_str = d.get('_percent_str', '0.0%').replace('%','').strip()
@@ -94,24 +94,32 @@ def run_command_with_live_output(cmd, total_duration=None):
     )
     stdout_output, stderr_output = [], []
     ffmpeg_time_regex = re.compile(r"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})")
+    
     def stream_reader(stream, output_list, is_stderr=False):
         for line in iter(stream.readline, ''):
             trimmed_line = line.strip()
             output_list.append(trimmed_line)
-            if total_duration and not is_stderr:
+            
+            if total_duration and is_stderr:
                 match = ffmpeg_time_regex.search(trimmed_line)
                 if match:
                     h, m, s, ms = map(int, match.groups())
                     current_time_seconds = h * 3600 + m * 60 + s + ms / 100
                     percent = min(100, (current_time_seconds / total_duration) * 100)
-                    # print(f"PROGRESS:RENDER:{'%.2f' % percent}", flush=True) # Đã tắt
+                    print(f"PROGRESS:RENDER:{'%.2f' % percent}", flush=True)
                     continue
-            if trimmed_line: print(trimmed_line, flush=True)
+            
+            if trimmed_line and not is_stderr: 
+                print(trimmed_line, flush=True)
+                
     stdout_thread = threading.Thread(target=stream_reader, args=(process.stdout, stdout_output))
     stderr_thread = threading.Thread(target=stream_reader, args=(process.stderr, stderr_output, True))
     stdout_thread.start(); stderr_thread.start(); stdout_thread.join(); stderr_thread.join()
     process.wait()
+    
     if process.returncode != 0:
+        for line in stderr_output:
+            if line: print(f"FFMPEG_ERROR: {line}", flush=True)
         raise subprocess.CalledProcessError(process.returncode, cmd, output='\n'.join(stdout_output), stderr='\n'.join(stderr_output))
 
 def download_thumbnail(thumbnail_url, dest_path):
@@ -204,7 +212,6 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
 
         if part_duration <= 0: 
             actual_num_parts = num_parts
-            # <<< SỬA LỖI TẠI ĐÂY: Xóa + 0.001 >>>
             part_duration = total_duration / num_parts 
         else:
             actual_num_parts = min(num_parts, math.floor(total_duration / part_duration))
@@ -221,12 +228,17 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         for i in range(actual_num_parts):
             part_num = i + 1; start_time = i * part_duration
             
-            # <<< SỬA LỖI TẠI ĐÂY: Vô hiệu hóa dòng kiểm tra lỗi >>>
-            # if start_time >= total_duration: break
-            
             output_path = os.path.join(output_dir, f"{sanitized_title}_Part_{part_num}.mp4")
             print(f"STATUS: Render Part {part_num}/{actual_num_parts}...", flush=True)
-            cmd = [ffmpeg_path, '-y', '-progress', '-', '-nostats', '-i', main_video_path, '-i', thumbnail_path]
+            
+            cmd = [
+                ffmpeg_path, '-y', 
+                '-hide_banner', 
+                '-loglevel', 'error', 
+                '-i', main_video_path, 
+                '-i', thumbnail_path
+            ]
+            
             input_map = {'video-placeholder': 0, 'thumbnail-placeholder': 1}; image_index = 2
             for item in layout:
                 if item['type'] == 'image' and item['source'] and item['source'].startswith('data:image'):
@@ -247,6 +259,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
             else: cmd += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '4']
             cmd += ['-c:a', 'aac', '-b:a', '192k', '-r', '30', '-shortest', output_path]
             print(f"STATUS: Khởi tạo FFMPEG cho Part {part_num} (có thể mất vài phút)...", flush=True)
+            
             run_command_with_live_output(cmd, total_duration=part_duration)
             print(f"RESULT:{output_path}", flush=True)
         print("STATUS: Hoàn tất tất cả các phần!", flush=True)

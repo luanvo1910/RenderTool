@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // --- Các hàm cũ (không đổi) ---
   openImageDialog: () => ipcRenderer.invoke('dialog:openImage'),
   openDirectoryDialog: () => ipcRenderer.invoke('dialog:openDirectory'),
   getTemplates: () => ipcRenderer.invoke('templates:get'),
@@ -30,4 +31,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process:cookie-required', listener);
     return () => ipcRenderer.removeListener('process:cookie-required', listener);
   },
+
+  // <<< THÊM MỚI: Các hàm cho Auto-Update >>>
+  onUpdateMessage: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('update:message', listener);
+    return () => ipcRenderer.removeListener('update:message', listener);
+  },
+  onUpdateAvailable: (callback) => {
+    const listener = (_event, info) => callback(info);
+    ipcRenderer.on('update:available', listener);
+    return () => ipcRenderer.removeListener('update:available', listener);
+  },
+  onUpdateProgress: (callback) => {
+    const listener = (_event, percent) => callback(percent);
+    ipcRenderer.on('update:progress', listener);
+    return () => ipcRenderer.removeListener('update:progress', listener);
+  },
+  onUpdateDownloaded: (callback) => {
+    const listener = (_event, info) => callback(info);
+    ipcRenderer.on('update:downloaded', listener);
+    return () => ipcRenderer.removeListener('update:downloaded', listener);
+  },
+  startDownload: () => ipcRenderer.send('updater:start-download'),
+  quitAndInstall: () => ipcRenderer.send('updater:quit-and-install'),
 });
