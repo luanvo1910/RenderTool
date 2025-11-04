@@ -82,12 +82,50 @@ function App() {
   const fullLogRef = useRef('');
 
   const jobStateRef = useRef();
-  useEffect(() => {
-    jobStateRef.current = { isRendering, urlQueue, currentQueueIndex, splitMode };
-  }, [isRendering, urlQueue, currentQueueIndex, splitMode]);
-
+  const layoutRef = useRef(null); // <<< SỬA LỖI 2: Thêm ref cho layout
 
   const selectedElement = elements.find(e => e.id === selectedElementId);
+
+  // <<< SỬA LỖI 2: Tách hàm captureLayoutData ra ngoài
+  const captureLayoutData = () => {
+    if (!canvasRef.current) return [];
+    const scaleFactor = VIDEO_WIDTH / canvasRef.current.offsetWidth;
+    return elements.map(elementInfo => {
+      const { id, type, zIndex, source, content, style, aspectRatio } = elementInfo;
+      const { width, height, top, left, transformX, transformY } = elementInfo;
+      if (!id || !width || !height) return null; 
+      const itemData = {
+        id, type, zIndex, source, content, aspectRatio,
+        x: Math.round((left + (transformX || 0)) * scaleFactor),
+        y: Math.round((top + (transformY || 0)) * scaleFactor),
+        width: Math.round(width * scaleFactor),
+        height: Math.round(height * scaleFactor),
+        ui: { 
+          x: transformX || 0, 
+          y: transformY || 0, 
+          width, 
+          height,
+          top,
+          left
+        },
+      };
+      if (itemData.type === 'text' && style) {
+        const reactFontSize = style.reactFontSize || 70;
+        const renderScale = style.fontRenderScale || 1.0;
+        const scaledReactSize = reactFontSize * scaleFactor;
+        const finalRenderFontSize = Math.round(scaledReactSize * renderScale);
+        itemData.textStyle = { ...style, fontSize: finalRenderFontSize };
+      }
+      return itemData;
+    }).filter(Boolean);
+  };
+
+  useEffect(() => {
+    // <<< SỬA LỖI 2: Cập nhật ref mỗi khi state thay đổi >>>
+    jobStateRef.current = { isRendering, urlQueue, currentQueueIndex, splitMode };
+    layoutRef.current = captureLayoutData();
+  }, [isRendering, urlQueue, currentQueueIndex, splitMode, elements]); // <<< Thêm `elements` vào dependency
+
 
   useEffect(() => {
     loadAndRenderTemplates();
@@ -125,6 +163,7 @@ function App() {
     });
 
     const removeLogListener = window.electronAPI.onProcessLog((logLine) => {
+        // <<< SỬA LỖI 2: Đọc state từ ref >>>
         const { isRendering, urlQueue, currentQueueIndex } = jobStateRef.current || {};
         
         fullLogRef.current += logLine + '\n';
@@ -141,6 +180,7 @@ function App() {
             if (isRendering && urlQueue.length > 0) {
                 const nextIndex = currentQueueIndex + 1;
                 if (nextIndex < urlQueue.length) {
+                    // Hàm runJob này bị "cũ" nhưng nó sẽ đọc ref (luôn mới)
                     runJob(nextIndex, urlQueue); 
                 } else {
                     setIsRendering(false);
@@ -208,7 +248,7 @@ function App() {
       removeUpdateProgressListener();
       removeUpdateDownloadedListener();
     };
-  }, []); 
+  }, []); // <<< Dependency rỗng (chỉ chạy 1 lần) là CỐ Ý và ĐÚNG
 
   useEffect(() => {
     if (logOutputRef.current) {
@@ -244,7 +284,7 @@ function App() {
       parts: partsInputRef.current.value,
       partDuration: durationValue, 
       savePath: savePathInputRef.current.value,
-      layout: captureLayoutData(),
+      layout: layoutRef.current, // <<< SỬA LỖI 2: Đọc layout từ ref
       encoder: encoder,
     });
   };
@@ -267,7 +307,7 @@ function App() {
     setUpdateStatus(`Đã xếp ${urls.length} link vào hàng đợi.`); 
     setUrlQueue(urls); 
     setCurrentQueueIndex(0); 
-    runJob(0, urls);
+    runJob(0, urls); // <<< SỬA LỖI 2: Không cần truyền layout
   };
 
   const handleElementSelect = (elementId) => { setSelectedElementId(elementId); };
@@ -321,39 +361,6 @@ function App() {
     );
   };
   
-  const captureLayoutData = () => {
-    if (!canvasRef.current) return [];
-    const scaleFactor = VIDEO_WIDTH / canvasRef.current.offsetWidth;
-    return elements.map(elementInfo => {
-      const { id, type, zIndex, source, content, style, aspectRatio } = elementInfo;
-      const { width, height, top, left, transformX, transformY } = elementInfo;
-      if (!id || !width || !height) return null; 
-      const itemData = {
-        id, type, zIndex, source, content, aspectRatio,
-        x: Math.round((left + (transformX || 0)) * scaleFactor),
-        y: Math.round((top + (transformY || 0)) * scaleFactor),
-        width: Math.round(width * scaleFactor),
-        height: Math.round(height * scaleFactor),
-        ui: { 
-          x: transformX || 0, 
-          y: transformY || 0, 
-          width, 
-          height,
-          top,
-          left
-        },
-      };
-      if (itemData.type === 'text' && style) {
-        const reactFontSize = style.reactFontSize || 70;
-        const renderScale = style.fontRenderScale || 1.0;
-        const scaledReactSize = reactFontSize * scaleFactor;
-        const finalRenderFontSize = Math.round(scaledReactSize * renderScale);
-        itemData.textStyle = { ...style, fontSize: finalRenderFontSize };
-      }
-      return itemData;
-    }).filter(Boolean);
-  };
-  
   const applyLayout = (layoutData) => {
     if (!canvasRef.current) return;
     const newElementsState = layoutData.map(itemData => {
@@ -385,7 +392,7 @@ function App() {
     setTemplates(fetchedTemplates);
   };
   const handleSaveTemplate = async (templateName) => {
-    const newTemplate = { id: `template-${Date.now()}`, name: templateName, layout: captureLayoutData() };
+    const newTemplate = { id: `template-${Date.now()}`, name: templateName, layout: layoutRef.current }; // <<< Sửa: Dùng ref
     await window.electronAPI.saveTemplate(newTemplate);
     loadAndRenderTemplates();
   };

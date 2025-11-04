@@ -133,11 +133,21 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
     
     for item in layout:
         if item.get('type') == 'text' or item.get('id') not in input_map: continue
-        input_index, w, h, x, y = input_map[item['id']], item['width'], item['height'], item['x'], item['y']
+        
+        # <<< SỬA LỖI 1: Thêm .get() để tránh lỗi NoneType >>>
+        input_index = input_map.get(item['id'])
+        w = item.get('width', 720) # Mặc định là 720 nếu thiếu
+        h = item.get('height', 1280) # Mặc định là 1280 nếu thiếu
+        x = item.get('x', 0) # Mặc định là 0 nếu thiếu
+        y = item.get('y', 0) # Mặc định là 0 nếu thiếu
+        
         scaled_stream, output_stream = f"s{overlay_count}", f"bg{overlay_count + 1}"
+        
         scale_filter = f"scale={w}:{h},setsar=1"
+        
         if item['type'] == 'video': filters.append(f"[{input_index}:v]trim=start={start}:duration={duration},setpts=PTS-STARTPTS,{scale_filter}[{scaled_stream}]")
-        else: filters.append(f"[{input_index}:v]{scale_filter}[{scaled_stream}]")
+        else: filters.append(f"[{input_index}:v]{scale_filter}[{scaled_stream}]") 
+        
         filters.append(f"[{last_stream}][{scaled_stream}]overlay={x}:{y}[{output_stream}]")
         last_stream, overlay_count = output_stream, overlay_count + 1
     
@@ -151,7 +161,17 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
         shadow_color = hex_to_ffmpeg_color(style.get("shadowColor", "#000000"), "80")
         shadow_x = style.get("shadowDepth", 2); shadow_y = style.get("shadowDepth", 2)
         font_family_name = style.get("fontFamily", "arial.ttf").replace("'", "").replace(":", "\\:")
-        text_x = item['x'] + (item['width'] / 2); text_y = item['y'] + (item['height'] / 2)
+
+        # <<< SỬA LỖI 1: Thêm .get() để tránh lỗi NoneType >>>
+        text_x_base = item.get('x', 0)
+        text_w_base = item.get('width', 720) # Mặc định 720
+        text_y_base = item.get('y', 0)
+        text_h_base = item.get('height', 100) # Mặc định 100
+        
+        # Tính toán dựa trên giá trị an toàn
+        text_x = (text_x_base or 0) + ((text_w_base or 720) / 2)
+        text_y = (text_y_base or 0) + ((text_h_base or 100) / 2)
+
         box_color_hex = style.get("boxColor", "#000000")
         box_opacity = style.get("boxOpacity", 0.5) 
         box_padding = style.get("boxPadding", 10) 
