@@ -12,9 +12,30 @@ import threading
 import yt_dlp 
 import math
 
-# --- BẢN VÁ LỖI UTF-8 ---
 if sys.stdout.encoding != 'utf-8': sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8': sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+
+if sys.platform == 'win32':
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    os.environ['PYTHONUTF8'] = '1'
+    # Đảm bảo console output dùng UTF-8 trên Windows
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+# --- PATCH subprocess.Popen để luôn dùng UTF-8 encoding ---
+# Fix quan trọng: yt-dlp gọi subprocess internally mà không set encoding
+_original_popen = subprocess.Popen
+class UTF8Popen(_original_popen):
+    def __init__(self, *args, **kwargs):
+        # Nếu text=True hoặc universal_newlines=True nhưng không có encoding
+        if (kwargs.get('text') or kwargs.get('universal_newlines')) and 'encoding' not in kwargs:
+            kwargs['encoding'] = 'utf-8'
+            kwargs['errors'] = 'replace'  # Ignore các ký tự không decode được
+        super().__init__(*args, **kwargs)
+subprocess.Popen = UTF8Popen
 
 # --- CÁC HÀM TIỆN ÍCH ---
 def get_executable_path(name, resources_path):
@@ -51,7 +72,12 @@ def ytdlp_progress_hook(d):
         print("PROGRESS:DOWNLOAD:100", flush=True)
 
 def fetch_video_metadata(url, cookies_path):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'noplaylist': True}
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True, 
+        'noplaylist': True,
+        'encoding': 'utf-8',  # Force UTF-8 encoding
+    }
     if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: return ydl.extract_info(url, download=False)
@@ -59,12 +85,17 @@ def fetch_video_metadata(url, cookies_path):
         if 'HTTP Error 403' in str(e): sys.exit(403)
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
+    except Exception as e:
+        # Bắt các lỗi encoding khác
+        print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
 
 def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
     output_template = os.path.splitext(dest_path)[0]
     
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best', 'merge_output_format': 'mp4',
+        'format': 'bestvideo+bestaudio/best', 
+        'merge_output_format': 'mp4',
         'outtmpl': f'{output_template}.%(ext)s',
         'ffmpeg_location': os.path.dirname(ffmpeg_path),
         'progress_hooks': [ytdlp_progress_hook], 
@@ -72,6 +103,7 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
         'noplaylist': True,
         'quiet': True, # Tắt log % download
         'no_warnings': True, # Tắt log cảnh báo
+        'encoding': 'utf-8',  # Force UTF-8 encoding
     }
     
     if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
@@ -82,6 +114,10 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
              os.rename(final_dest_path_with_ext, dest_path)
     except yt_dlp.utils.DownloadError as e:
         if 'HTTP Error 403' in str(e): sys.exit(403)
+        print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+    except Exception as e:
+        # Bắt các lỗi encoding khác
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
 

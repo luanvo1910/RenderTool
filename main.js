@@ -216,7 +216,14 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
 
     const commandToRun = 'py';
 
-    const pythonProcess = spawn(commandToRun, args, { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    const pythonProcess = spawn(commandToRun, args, { 
+      env: { 
+        ...process.env, 
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+        PYTHONLEGACYWINDOWSSTDIO: '0'
+      } 
+    });
     
     pythonProcess.stdout.on('data', (data) => {
         const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
