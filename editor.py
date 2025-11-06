@@ -206,9 +206,22 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
 
 def process_video(url, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path):
     with open(layout_file, 'r', encoding='utf-8') as f: layout = json.load(f)
+
+    # =================================================================
+    # <<< SỬA LỖI TẠI ĐÂY: Sử dụng user_data_path cho TOÀN BỘ >>>
+    # =================================================================
+    
+    # Đảm bảo output_dir dùng user_data_path nếu save_path rỗng
     output_dir = save_path or os.path.join(user_data_path, "output")
+    
+    # Đảm bảo temp_dir LUÔN dùng user_data_path
     temp_dir = os.path.join(user_data_path, "temp_files")
-    os.makedirs(output_dir, exist_ok=True); os.makedirs(temp_dir, exist_ok=True)
+    
+    # Tạo các thư mục an toàn này
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(temp_dir, exist_ok=True) # Dòng 158 cũ bây giờ đã an toàn
+    
+    # =================================================================
     
     ffmpeg_path = get_executable_path("ffmpeg", resources_path)
     user_cookie_path = os.path.join(user_data_path, 'cookies.txt')
@@ -227,28 +240,23 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         except ValueError:
             part_duration = 0.0
 
-        # =================================================================
-        # <<< SỬA LỖI TẠI ĐÂY: Thay math.floor bằng math.ceil >>>
-        # =================================================================
         if part_duration <= 0: 
             actual_num_parts = num_parts
             part_duration = total_duration / num_parts 
         else:
-            # Code cũ: actual_num_parts = min(num_parts, math.floor(total_duration / part_duration))
-            # Code mới:
             total_parts_by_duration = math.ceil(total_duration / part_duration)
             actual_num_parts = min(num_parts, total_parts_by_duration)
         
-        # Đảm bảo số nguyên
         actual_num_parts = int(actual_num_parts)
-        # =================================================================
         
         print("STATUS: Tải video chính...", flush=True)
+        # Sửa: file tạm phải nằm trong temp_dir an toàn
         main_video_path = os.path.join(temp_dir, f"{video_id}.mp4")
         if not os.path.exists(main_video_path):
              download_main_video(url, ffmpeg_path, main_video_path, cookies_path_to_use)
         
         print("STATUS: Tải thumbnail...", flush=True)
+        # Sửa: file tạm phải nằm trong temp_dir an toàn
         thumbnail_path = os.path.join(temp_dir, f"{video_id}_thumb.jpg")
         if not os.path.exists(thumbnail_path): download_thumbnail(thumbnail_url, thumbnail_path)
         
@@ -272,6 +280,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
                     try:
                         header, encoded = item['source'].split(',', 1); image_format = header.split(';')[0].split('/')[1]
                         image_data = base64.b64decode(encoded)
+                        # Sửa: file tạm phải nằm trong temp_dir an toàn
                         temp_image_path = os.path.join(temp_dir, f"temp_img_{item['id']}.{image_format}")
                         with open(temp_image_path, 'wb') as img_f: img_f.write(image_data)
                         cmd += ['-i', temp_image_path]; input_map[item['id']] = image_index; image_index += 1
