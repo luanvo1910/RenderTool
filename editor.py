@@ -11,6 +11,30 @@ import io
 import threading
 import math
 
+# --- TỰ ĐỘNG CÀI ĐẶT yt-dlp NẾU THIẾU ---
+def ensure_yt_dlp():
+    """Tự động cài đặt yt-dlp nếu chưa có"""
+    try:
+        import yt_dlp
+        return True
+    except ImportError:
+        print("STATUS: Đang cài đặt yt-dlp...", flush=True)
+        try:
+            # Cài đặt yt-dlp bằng pip
+            subprocess.check_call([
+                sys.executable, '-m', 'pip', 'install', '--quiet', '--upgrade', 'yt-dlp'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            print("STATUS: Đã cài đặt yt-dlp thành công!", flush=True)
+            # Import lại sau khi cài đặt
+            import yt_dlp
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"PYTHON_ERROR: Không thể cài đặt yt-dlp. Vui lòng cài đặt thủ công bằng lệnh: pip install yt-dlp", file=sys.stderr, flush=True)
+            return False
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi cài đặt yt-dlp: {e}", file=sys.stderr, flush=True)
+            return False
+
 # --- TỰ ĐỘNG THÊM yt_dlp TỪ RESOURCES VÀO PYTHON PATH ---
 def setup_yt_dlp_from_resources(resources_path):
     """Thêm yt_dlp từ resources vào sys.path nếu có"""
@@ -379,15 +403,12 @@ if __name__ == "__main__":
     parser.add_argument('--encoder', type=str, default='libx264')
     args = parser.parse_args()
     
-    # Setup yt_dlp từ resources trước khi import
-    setup_yt_dlp_from_resources(args.resources_path)
-    
-    # Import yt_dlp sau khi đã setup path
-    try:
-        import yt_dlp
-    except ImportError:
-        print("PYTHON_ERROR: Không tìm thấy module yt_dlp. Vui lòng đảm bảo yt_dlp đã được bundle vào app.", file=sys.stderr, flush=True)
+    # Tự động cài đặt yt-dlp nếu chưa có
+    if not ensure_yt_dlp():
         sys.exit(1)
+    
+    # Import yt_dlp (đã được cài đặt hoặc đã có sẵn)
+    import yt_dlp
     
     try:
         process_video(args.url, args.parts, args.save_path, args.part_duration, args.layout_file, args.encoder, args.resources_path, args.user_data_path)
