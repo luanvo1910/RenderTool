@@ -1,6 +1,6 @@
 {
   "name": "project-rb",
-  "version": "1.3.10",
+  "version": "1.3.11",
   "description": "Ứng dụng tự động cắt và dựng video từ YouTube",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "start": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
     "build:renderer": "npm run build --prefix renderer",
-    "build:electron": "electron-builder",
+    "prepare:build": "node prepare-build.js",
+    "build:electron": "npm run prepare:build && electron-builder",
     "build": "npm run build:renderer && npm run build:electron",
     "publish": "npm run build && electron-builder --publish always"
   },

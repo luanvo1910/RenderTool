@@ -11,88 +11,19 @@ import io
 import threading
 import math
 
-# --- TỰ ĐỘNG CÀI ĐẶT yt_dlp NẾU CHƯA CÓ ---
-def ensure_yt_dlp_installed():
-    """Kiểm tra và tự động cài đặt yt_dlp nếu chưa có"""
-    try:
-        import yt_dlp
+# --- TỰ ĐỘNG THÊM yt_dlp TỪ RESOURCES VÀO PYTHON PATH ---
+def setup_yt_dlp_from_resources(resources_path):
+    """Thêm yt_dlp từ resources vào sys.path nếu có"""
+    yt_dlp_path = os.path.join(resources_path, 'yt_dlp')
+    if os.path.exists(yt_dlp_path):
+        # Thêm vào đầu sys.path để ưu tiên import từ đây
+        if yt_dlp_path not in sys.path:
+            sys.path.insert(0, yt_dlp_path)
+        # Thêm thư mục chứa yt_dlp (resources_path) vào sys.path
+        if resources_path not in sys.path:
+            sys.path.insert(0, resources_path)
         return True
-    except ImportError:
-        print("STATUS: Phát hiện yt_dlp chưa được cài đặt. Đang cài đặt tự động...", flush=True)
-        print("STATUS: Quá trình này có thể mất vài phút. Vui lòng đợi...", flush=True)
-        try:
-            # Cài đặt yt_dlp bằng pip với timeout
-            # Sử dụng --user để cài vào user site-packages (không cần quyền admin)
-            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            
-            # Thử cài đặt với --user trước (không cần quyền admin)
-            pip_cmd = [sys.executable, '-m', 'pip', 'install', '--user', '--upgrade', 'yt-dlp']
-            
-            process = subprocess.Popen(
-                pip_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                creationflags=creationflags
-            )
-            
-            stdout_output, stderr_output = process.communicate(timeout=300)  # Timeout 5 phút
-            
-            if process.returncode == 0:
-                print("STATUS: Đã cài đặt yt_dlp thành công!", flush=True)
-                # Thêm user site-packages vào sys.path nếu chưa có
-                import site
-                user_site = site.getusersitepackages()
-                if user_site and user_site not in sys.path:
-                    sys.path.insert(0, user_site)
-                # Import lại sau khi cài đặt
-                import yt_dlp
-                return True
-            else:
-                error_msg = stderr_output.strip() if stderr_output else "Không rõ lỗi"
-                # Thử cài đặt không có --user (cần quyền admin)
-                print("STATUS: Thử cài đặt với quyền admin...", flush=True)
-                pip_cmd_no_user = [sys.executable, '-m', 'pip', 'install', '--upgrade', 'yt-dlp']
-                process2 = subprocess.Popen(
-                    pip_cmd_no_user,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace',
-                    creationflags=creationflags
-                )
-                stdout_output2, stderr_output2 = process2.communicate(timeout=300)
-                
-                if process2.returncode == 0:
-                    print("STATUS: Đã cài đặt yt_dlp thành công!", flush=True)
-                    import yt_dlp
-                    return True
-                else:
-                    error_msg2 = stderr_output2.strip() if stderr_output2 else "Không rõ lỗi"
-                    print(f"PYTHON_ERROR: Không thể cài đặt yt_dlp. Lỗi: {error_msg2}", file=sys.stderr, flush=True)
-                    print(f"PYTHON_ERROR: Vui lòng cài đặt thủ công bằng lệnh: {sys.executable} -m pip install --user yt-dlp", file=sys.stderr, flush=True)
-                    return False
-        except subprocess.TimeoutExpired:
-            print("PYTHON_ERROR: Quá trình cài đặt yt_dlp quá lâu. Vui lòng kiểm tra kết nối internet.", file=sys.stderr, flush=True)
-            return False
-        except subprocess.CalledProcessError as e:
-            print(f"PYTHON_ERROR: Không thể cài đặt yt_dlp. Mã lỗi: {e.returncode}", file=sys.stderr, flush=True)
-            print(f"PYTHON_ERROR: Vui lòng cài đặt thủ công bằng lệnh: {sys.executable} -m pip install --user yt-dlp", file=sys.stderr, flush=True)
-            return False
-        except Exception as e:
-            print(f"PYTHON_ERROR: Lỗi khi cài đặt yt_dlp: {e}", file=sys.stderr, flush=True)
-            print(f"PYTHON_ERROR: Vui lòng cài đặt thủ công bằng lệnh: {sys.executable} -m pip install --user yt-dlp", file=sys.stderr, flush=True)
-            return False
-
-# Kiểm tra và cài đặt yt_dlp trước khi sử dụng
-if not ensure_yt_dlp_installed():
-    print("PYTHON_ERROR: Không thể cài đặt yt_dlp. Ứng dụng sẽ không hoạt động.", file=sys.stderr, flush=True)
-    sys.exit(1)
-
-import yt_dlp
+    return False
 
 if sys.stdout.encoding != 'utf-8': sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8': sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
@@ -142,6 +73,8 @@ def ffmpeg_safe_path(path):
     return path
 
 # --- LOGIC TẢI XUỐNG BẰNG THƯ VIỆN YT-DLP ---
+# Lưu ý: yt_dlp sẽ được import sau khi setup path trong __main__
+
 def ytdlp_progress_hook(d):
     # Gửi % download (đã bị App.jsx ẩn đi)
     if d['status'] == 'downloading':
@@ -445,6 +378,16 @@ if __name__ == "__main__":
     parser.add_argument('--part-duration', type=str, default="0")
     parser.add_argument('--encoder', type=str, default='libx264')
     args = parser.parse_args()
+    
+    # Setup yt_dlp từ resources trước khi import
+    setup_yt_dlp_from_resources(args.resources_path)
+    
+    # Import yt_dlp sau khi đã setup path
+    try:
+        import yt_dlp
+    except ImportError:
+        print("PYTHON_ERROR: Không tìm thấy module yt_dlp. Vui lòng đảm bảo yt_dlp đã được bundle vào app.", file=sys.stderr, flush=True)
+        sys.exit(1)
     
     try:
         process_video(args.url, args.parts, args.save_path, args.part_duration, args.layout_file, args.encoder, args.resources_path, args.user_data_path)
