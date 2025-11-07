@@ -83,6 +83,7 @@ function App() {
 
   const jobStateRef = useRef();
   const layoutRef = useRef(null); // <<< SỬA LỖI 2: Thêm ref cho layout
+  const linkProcessedRef = useRef(false); // Đánh dấu đã xử lý link hiện tại (thành công hoặc lỗi)
 
   const selectedElement = elements.find(e => e.id === selectedElementId);
 
@@ -169,18 +170,15 @@ function App() {
         fullLogRef.current += logLine + '\n';
 
         if (logLine.startsWith('STATUS:')) { setStatusText(logLine.replace('STATUS:', '').trim()); }
-        if (logLine.includes('FATAL_ERROR:') || (logLine.includes('PYTHON_ERROR:') && !logLine.includes('WARNING:'))) {
-            setIsRendering(false); 
-            setUpdateStatus(`LỖI! Đã dừng hàng đợi.`);
-            setStatusText('Đã xảy ra lỗi!');
-            setUrlQueue([]);
-            setCurrentQueueIndex(0);
-        }
-        if (logLine.includes('--- Tiến trình kết thúc')) {
+        
+        // Xử lý link thành công hoặc lỗi
+        if (logLine.includes('LINK_SUCCESS')) {
+            linkProcessedRef.current = true; // Đánh dấu đã xử lý
+            // Link thành công, tiếp tục với link tiếp theo
             if (isRendering && urlQueue.length > 0) {
                 const nextIndex = currentQueueIndex + 1;
                 if (nextIndex < urlQueue.length) {
-                    // Hàm runJob này bị "cũ" nhưng nó sẽ đọc ref (luôn mới)
+                    setUpdateStatus(`Link ${currentQueueIndex + 1} thành công. Chuyển sang link ${nextIndex + 1}...`);
                     runJob(nextIndex, urlQueue); 
                 } else {
                     setIsRendering(false);
@@ -190,10 +188,70 @@ function App() {
                     setCurrentQueueIndex(0);
                     setProgress(100);
                 }
-            } else {
+            }
+        } else if (logLine.includes('LINK_ERROR:')) {
+            linkProcessedRef.current = true; // Đánh dấu đã xử lý
+            // Link lỗi, skip và tiếp tục với link tiếp theo
+            const errorMsg = logLine.replace('LINK_ERROR:', '').trim();
+            setUpdateStatus(`Link ${currentQueueIndex + 1} bị lỗi: ${errorMsg}. Đang bỏ qua và chuyển sang link tiếp theo...`);
+            if (isRendering && urlQueue.length > 0) {
+                const nextIndex = currentQueueIndex + 1;
+                if (nextIndex < urlQueue.length) {
+                    // Bỏ qua link lỗi và chuyển sang link tiếp theo
+                    runJob(nextIndex, urlQueue); 
+                } else {
+                    setIsRendering(false);
+                    setUpdateStatus(`Hoàn tất! Đã xử lý ${urlQueue.length} link (có link bị lỗi đã được bỏ qua).`);
+                    setStatusText('Sẵn sàng');
+                    setUrlQueue([]);
+                    setCurrentQueueIndex(0);
+                    setProgress(100);
+                }
+            }
+        }
+        
+        // Xử lý FATAL_ERROR (lỗi nghiêm trọng không thể tiếp tục)
+        if (logLine.includes('FATAL_ERROR:')) {
+            setIsRendering(false); 
+            setUpdateStatus(`LỖI NGHIÊM TRỌNG! Đã dừng hàng đợi.`);
+            setStatusText('Đã xảy ra lỗi nghiêm trọng!');
+            setUrlQueue([]);
+            setCurrentQueueIndex(0);
+        }
+        
+        if (logLine.includes('--- Tiến trình kết thúc')) {
+            // Chỉ xử lý nếu chưa có LINK_SUCCESS hoặc LINK_ERROR (tránh xử lý trùng)
+            if (!linkProcessedRef.current && isRendering && urlQueue.length > 0) {
+                // Kiểm tra exit code từ main.js
+                const exitCodeMatch = logLine.match(/mã (\d+)/);
+                const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : 0;
+                
+                // Nếu exit code là 0 (thành công) hoặc 1 (lỗi nhưng đã xử lý), tiếp tục
+                if (exitCode === 0 || exitCode === 1) {
+                    const nextIndex = currentQueueIndex + 1;
+                    if (nextIndex < urlQueue.length) {
+                        // Nếu exit code là 1, đây là link lỗi
+                        if (exitCode === 1) {
+                            setUpdateStatus(`Link ${currentQueueIndex + 1} bị lỗi. Đang bỏ qua và chuyển sang link tiếp theo...`);
+                        }
+                        linkProcessedRef.current = false; // Reset flag cho link tiếp theo
+                        runJob(nextIndex, urlQueue); 
+                    } else {
+                        setIsRendering(false);
+                        const successCount = urlQueue.length; // Có thể đếm chính xác hơn nếu cần
+                        setUpdateStatus(`Hoàn tất! Đã xử lý ${successCount} link.`);
+                        setStatusText('Sẵn sàng');
+                        setUrlQueue([]);
+                        setCurrentQueueIndex(0);
+                        setProgress(100);
+                        linkProcessedRef.current = false; // Reset flag
+                    }
+                }
+            } else if (!isRendering || urlQueue.length === 0) {
                 setIsRendering(false);
                 setStatusText('Hoàn tất!');
                 setProgress(100);
+                linkProcessedRef.current = false; // Reset flag
             }
         }
         
@@ -215,11 +273,26 @@ function App() {
         const errorMsg = 'ERROR: Video này yêu cầu cookies để tải.\n';
         setLog(prev => prev + errorMsg);
         fullLogRef.current += errorMsg;
-        setIsRendering(false); 
+        // Không dừng queue nữa, chỉ hiển thị cảnh báo và tiếp tục
         setIsCookieRequired(true);
-        setStatusText('Lỗi! Cần cập nhật cookies.');
-        setUpdateStatus('Lỗi Cookies! Đã dừng hàng đợi.');
-        setUrlQueue([]);
+        setStatusText('Cảnh báo: Video yêu cầu cookies.');
+        setUpdateStatus('Link này yêu cầu cookies. Đang bỏ qua và tiếp tục...');
+        // Tiếp tục với link tiếp theo thay vì dừng
+        const { isRendering, urlQueue, currentQueueIndex } = jobStateRef.current || {};
+        if (isRendering && urlQueue && urlQueue.length > 0) {
+            const nextIndex = currentQueueIndex + 1;
+            if (nextIndex < urlQueue.length) {
+                setTimeout(() => {
+                    runJob(nextIndex, urlQueue);
+                }, 1000); // Đợi 1 giây trước khi chuyển link
+            } else {
+                setIsRendering(false);
+                setUpdateStatus(`Hoàn tất! Đã xử lý ${urlQueue.length} link (có link yêu cầu cookies đã được bỏ qua).`);
+                setStatusText('Sẵn sàng');
+                setUrlQueue([]);
+                setCurrentQueueIndex(0);
+            }
+        }
     });
     const removeUpdateMessageListener = window.electronAPI.onUpdateMessage((message) => {
         setUpdateStatus(message);
@@ -265,6 +338,7 @@ function App() {
         setUrlQueue([]);
         return;
     }
+    linkProcessedRef.current = false; // Reset flag khi bắt đầu link mới
     setCurrentQueueIndex(index);
     setUpdateStatus(`Đang xử lý link ${index + 1}/${queue.length}:`); 
     setStatusText(`Bắt đầu...`); 

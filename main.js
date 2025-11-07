@@ -241,8 +241,12 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
     pythonProcess.stderr.on('data', (data) => sendUpdateMessage('process:log', `PYTHON_ERROR: ${data.toString('utf8').trim()}`));
     pythonProcess.on('error', (err) => sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`));
     pythonProcess.on('close', (code) => {
-        if (code === 403) sendUpdateMessage('process:cookie-required');
-        sendUpdateMessage('process:log', `--- Tiến trình kết thúc với mã ${code} ---`);
+        if (code === 403) {
+            sendUpdateMessage('process:cookie-required');
+        }
+        // Gửi thông báo kết thúc với exit code để frontend biết là lỗi hay thành công
+        const statusMsg = code === 0 ? '--- Tiến trình kết thúc thành công ---' : `--- Tiến trình kết thúc với mã ${code} (lỗi) ---`;
+        sendUpdateMessage('process:log', statusMsg);
         sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
         if (fs.existsSync(layoutFilePath)) fs.unlinkSync(layoutFilePath);
     });
