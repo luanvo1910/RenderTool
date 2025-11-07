@@ -35,20 +35,6 @@ def ensure_yt_dlp():
             print(f"PYTHON_ERROR: Lỗi khi cài đặt yt-dlp: {e}", file=sys.stderr, flush=True)
             return False
 
-# --- TỰ ĐỘNG THÊM yt_dlp TỪ RESOURCES VÀO PYTHON PATH ---
-def setup_yt_dlp_from_resources(resources_path):
-    """Thêm yt_dlp từ resources vào sys.path nếu có"""
-    yt_dlp_path = os.path.join(resources_path, 'yt_dlp')
-    if os.path.exists(yt_dlp_path):
-        # Thêm vào đầu sys.path để ưu tiên import từ đây
-        if yt_dlp_path not in sys.path:
-            sys.path.insert(0, yt_dlp_path)
-        # Thêm thư mục chứa yt_dlp (resources_path) vào sys.path
-        if resources_path not in sys.path:
-            sys.path.insert(0, resources_path)
-        return True
-    return False
-
 if sys.stdout.encoding != 'utf-8': sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8': sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
