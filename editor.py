@@ -9,8 +9,90 @@ import shutil
 import base64
 import io
 import threading
-import yt_dlp 
 import math
+
+# --- TỰ ĐỘNG CÀI ĐẶT yt_dlp NẾU CHƯA CÓ ---
+def ensure_yt_dlp_installed():
+    """Kiểm tra và tự động cài đặt yt_dlp nếu chưa có"""
+    try:
+        import yt_dlp
+        return True
+    except ImportError:
+        print("STATUS: Phát hiện yt_dlp chưa được cài đặt. Đang cài đặt tự động...", flush=True)
+        print("STATUS: Quá trình này có thể mất vài phút. Vui lòng đợi...", flush=True)
+        try:
+            # Cài đặt yt_dlp bằng pip với timeout
+            # Sử dụng --user để cài vào user site-packages (không cần quyền admin)
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            
+            # Thử cài đặt với --user trước (không cần quyền admin)
+            pip_cmd = [sys.executable, '-m', 'pip', 'install', '--user', '--upgrade', 'yt-dlp']
+            
+            process = subprocess.Popen(
+                pip_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=creationflags
+            )
+            
+            stdout_output, stderr_output = process.communicate(timeout=300)  # Timeout 5 phút
+            
+            if process.returncode == 0:
+                print("STATUS: Đã cài đặt yt_dlp thành công!", flush=True)
+                # Thêm user site-packages vào sys.path nếu chưa có
+                import site
+                user_site = site.getusersitepackages()
+                if user_site and user_site not in sys.path:
+                    sys.path.insert(0, user_site)
+                # Import lại sau khi cài đặt
+                import yt_dlp
+                return True
+            else:
+                error_msg = stderr_output.strip() if stderr_output else "Không rõ lỗi"
+                # Thử cài đặt không có --user (cần quyền admin)
+                print("STATUS: Thử cài đặt với quyền admin...", flush=True)
+                pip_cmd_no_user = [sys.executable, '-m', 'pip', 'install', '--upgrade', 'yt-dlp']
+                process2 = subprocess.Popen(
+                    pip_cmd_no_user,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    creationflags=creationflags
+                )
+                stdout_output2, stderr_output2 = process2.communicate(timeout=300)
+                
+                if process2.returncode == 0:
+                    print("STATUS: Đã cài đặt yt_dlp thành công!", flush=True)
+                    import yt_dlp
+                    return True
+                else:
+                    error_msg2 = stderr_output2.strip() if stderr_output2 else "Không rõ lỗi"
+                    print(f"PYTHON_ERROR: Không thể cài đặt yt_dlp. Lỗi: {error_msg2}", file=sys.stderr, flush=True)
+                    print(f"PYTHON_ERROR: Vui lòng cài đặt thủ công bằng lệnh: {sys.executable} -m pip install --user yt-dlp", file=sys.stderr, flush=True)
+                    return False
+        except subprocess.TimeoutExpired:
+            print("PYTHON_ERROR: Quá trình cài đặt yt_dlp quá lâu. Vui lòng kiểm tra kết nối internet.", file=sys.stderr, flush=True)
+            return False
+        except subprocess.CalledProcessError as e:
+            print(f"PYTHON_ERROR: Không thể cài đặt yt_dlp. Mã lỗi: {e.returncode}", file=sys.stderr, flush=True)
+            print(f"PYTHON_ERROR: Vui lòng cài đặt thủ công bằng lệnh: {sys.executable} -m pip install --user yt-dlp", file=sys.stderr, flush=True)
+            return False
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi cài đặt yt_dlp: {e}", file=sys.stderr, flush=True)
+            print(f"PYTHON_ERROR: Vui lòng cài đặt thủ công bằng lệnh: {sys.executable} -m pip install --user yt-dlp", file=sys.stderr, flush=True)
+            return False
+
+# Kiểm tra và cài đặt yt_dlp trước khi sử dụng
+if not ensure_yt_dlp_installed():
+    print("PYTHON_ERROR: Không thể cài đặt yt_dlp. Ứng dụng sẽ không hoạt động.", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+import yt_dlp
 
 if sys.stdout.encoding != 'utf-8': sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8': sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
@@ -82,13 +164,15 @@ def fetch_video_metadata(url, cookies_path):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: return ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as e:
-        if 'HTTP Error 403' in str(e): sys.exit(403)
+        if 'HTTP Error 403' in str(e):
+            print(f"PYTHON_ERROR: Video yêu cầu cookies. {e}", file=sys.stderr, flush=True)
+            raise Exception(f"Video yêu cầu cookies: {e}")
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        sys.exit(1)
+        raise Exception(f"Lỗi tải metadata: {e}")
     except Exception as e:
         # Bắt các lỗi encoding khác
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        sys.exit(1)
+        raise Exception(f"Lỗi không xác định: {e}")
 
 def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
     output_template = os.path.splitext(dest_path)[0]
@@ -113,13 +197,15 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
         if os.path.exists(final_dest_path_with_ext) and final_dest_path_with_ext != dest_path:
              os.rename(final_dest_path_with_ext, dest_path)
     except yt_dlp.utils.DownloadError as e:
-        if 'HTTP Error 403' in str(e): sys.exit(403)
+        if 'HTTP Error 403' in str(e):
+            print(f"PYTHON_ERROR: Video yêu cầu cookies. {e}", file=sys.stderr, flush=True)
+            raise Exception(f"Video yêu cầu cookies: {e}")
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        sys.exit(1)
+        raise Exception(f"Lỗi tải video: {e}")
     except Exception as e:
         # Bắt các lỗi encoding khác
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        sys.exit(1)
+        raise Exception(f"Lỗi không xác định khi tải video: {e}")
 
 # --- CÁC HÀM XỬ LÝ FFMPEG ---
 def run_command_with_live_output(cmd, total_duration=None):
@@ -335,8 +421,11 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
             run_command_with_live_output(cmd, total_duration=part_duration)
             print(f"RESULT:{output_path}", flush=True)
         print("STATUS: Hoàn tất tất cả các phần!", flush=True)
+        print("LINK_SUCCESS", flush=True)  # Đánh dấu link thành công
     except Exception as e:
-        print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
+        error_msg = str(e)
+        print(f"PYTHON_ERROR: {error_msg}", file=sys.stderr, flush=True)
+        print(f"LINK_ERROR: {error_msg}", flush=True)  # Đánh dấu link lỗi
     finally:
         print("STATUS: Dọn dẹp file tạm...", flush=True)
         if os.path.exists(temp_dir): 
@@ -357,4 +446,9 @@ if __name__ == "__main__":
     parser.add_argument('--encoder', type=str, default='libx264')
     args = parser.parse_args()
     
-    process_video(args.url, args.parts, args.save_path, args.part_duration, args.layout_file, args.encoder, args.resources_path, args.user_data_path)
+    try:
+        process_video(args.url, args.parts, args.save_path, args.part_duration, args.layout_file, args.encoder, args.resources_path, args.user_data_path)
+        sys.exit(0)  # Thành công
+    except Exception as e:
+        # Lỗi đã được xử lý trong process_video, chỉ cần exit với code lỗi
+        sys.exit(1)  # Lỗi
