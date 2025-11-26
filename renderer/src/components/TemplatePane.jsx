@@ -23,7 +23,7 @@ function TemplatePane({ templates, onSave, onLoad, onDelete }) {
   return (
     <div className="template-pane">
       <h3>Mẫu Layout</h3>
-      <div id="template-list">
+      <div className="template-list">
         {templates.map(template => (
           <div key={template.id} className="template-item" onClick={() => onLoad(template.layout)}>
             <span>{template.name}</span>

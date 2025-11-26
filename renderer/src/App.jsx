@@ -5,6 +5,7 @@ import ControlsPane from './components/ControlsPane';
 import './App.css';
 
 const VIDEO_WIDTH = 720;
+const VIDEO_HEIGHT = 1280; // Tỉ lệ 9:16 (720:1280 = 9:16)
 const defaultTextStyle = {
   fontFamily: 'arial.ttf', 
   reactFontSize: 70,
@@ -24,15 +25,18 @@ const defaultTextStyle = {
 const initialElements = [
   { 
     id: 'video-placeholder', type: 'video', zIndex: 1, source: null,
-    width: 400, height: 300, top: 350, left: 10, transformX: 0, transformY: 0
+    // Giá trị theo VIDEO_WIDTH (720x1280)
+    width: 600, height: 400, top: 450, left: 60, transformX: 0, transformY: 0
   },
   { 
     id: 'thumbnail-placeholder', type: 'thumbnail', zIndex: 2, source: null,
-    width: 400, height: 300, top: 20, left: 10, transformX: 0, transformY: 0
+    // Giá trị theo VIDEO_WIDTH (720x1280)
+    width: 600, height: 400, top: 20, left: 60, transformX: 0, transformY: 0
   },
   { 
     id: 'text-placeholder', type: 'text', zIndex: 3, content: "Part ...", style: { ...defaultTextStyle },
-    width: 400, height: 150, top: 700, left: 10, transformX: 0, transformY: 0
+    // Giá trị theo VIDEO_WIDTH (720x1280)
+    width: 600, height: 150, top: 900, left: 60, transformX: 0, transformY: 0
   },
 ];
 
@@ -63,17 +67,21 @@ function App() {
   const [statusText, setStatusText] = useState('Sẵn sàng');
   const [progress, setProgress] = useState(0);
   const [splitMode, setSplitMode] = useState('duration');
+  const [showPartText, setShowPartText] = useState(true); // Bật/tắt hiển thị chữ "Part..."
   
   const [urlQueue, setUrlQueue] = useState([]);
   const [currentQueueIndex, setCurrentQueueIndex] = useState(0);
-  const [queueStatus, setQueueStatus] = useState(''); 
+  const [queueStatus, setQueueStatus] = useState('');
+  
+  const handleQueueChange = (newQueue) => {
+    setUrlQueue(newQueue);
+  }; 
 
   const [updateInfo, setUpdateInfo] = useState(null); 
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
   const [isUpdateDownloaded, setIsUpdateDownloaded] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(''); 
 
-  const urlInputRef = useRef(null);
   const durationInputRef = useRef(null);
   const partsInputRef = useRef(null);
   const savePathInputRef = useRef(null);
@@ -90,17 +98,22 @@ function App() {
   // <<< SỬA LỖI 2: Tách hàm captureLayoutData ra ngoài
   const captureLayoutData = () => {
     if (!canvasRef.current) return [];
-    const scaleFactor = VIDEO_WIDTH / canvasRef.current.offsetWidth;
-    return elements.map(elementInfo => {
+    // Filter ra text-placeholder nếu showPartText = false
+    const filteredElements = showPartText 
+      ? elements 
+      : elements.filter(el => el.id !== 'text-placeholder');
+    return filteredElements.map(elementInfo => {
       const { id, type, zIndex, source, content, style, aspectRatio } = elementInfo;
       const { width, height, top, left, transformX, transformY } = elementInfo;
       if (!id || !width || !height) return null; 
+      // Các giá trị trong state (left, top, width, height, transformX, transformY) 
+      // đã là giá trị gốc theo VIDEO_WIDTH (720x1280), không cần scale nữa
       const itemData = {
         id, type, zIndex, source, content, aspectRatio,
-        x: Math.round((left + (transformX || 0)) * scaleFactor),
-        y: Math.round((top + (transformY || 0)) * scaleFactor),
-        width: Math.round(width * scaleFactor),
-        height: Math.round(height * scaleFactor),
+        x: Math.round(left + (transformX || 0)),
+        y: Math.round(top + (transformY || 0)),
+        width: Math.round(width),
+        height: Math.round(height),
         ui: { 
           x: transformX || 0, 
           y: transformY || 0, 
@@ -113,8 +126,8 @@ function App() {
       if (itemData.type === 'text' && style) {
         const reactFontSize = style.reactFontSize || 70;
         const renderScale = style.fontRenderScale || 1.0;
-        const scaledReactSize = reactFontSize * scaleFactor;
-        const finalRenderFontSize = Math.round(scaledReactSize * renderScale);
+        // reactFontSize đã là giá trị gốc theo VIDEO_WIDTH, không cần scale
+        const finalRenderFontSize = Math.round(reactFontSize * renderScale);
         itemData.textStyle = { ...style, fontSize: finalRenderFontSize };
       }
       return itemData;
@@ -365,23 +378,19 @@ function App() {
 
 
   const handleRunRender = () => {
-    const urlsText = urlInputRef.current.value;
-    if (!urlsText) return alert('Vui lòng nhập ít nhất một link YouTube.');
+    if (urlQueue.length === 0) {
+      return alert('Vui lòng thêm ít nhất một link YouTube vào hàng chờ.');
+    }
     if (isRendering) return;
-    const urls = urlsText.split('\n')
-                         .map(url => url.trim())
-                         .filter(url => url.startsWith('http'));
-    if (urls.length === 0) return alert('Không tìm thấy link YouTube hợp lệ. (Phải bắt đầu bằng http và mỗi link 1 dòng).');
     
-    const startLog = `Bắt đầu render hàng đợi ${urls.length} link...\n`;
+    const startLog = `Bắt đầu render hàng đợi ${urlQueue.length} link...\n`;
     setLog(startLog);
     fullLogRef.current = startLog;
     
     setIsRendering(true);
-    setUpdateStatus(`Đã xếp ${urls.length} link vào hàng đợi.`); 
-    setUrlQueue(urls); 
+    setUpdateStatus(`Đã xếp ${urlQueue.length} link vào hàng đợi.`); 
     setCurrentQueueIndex(0); 
-    runJob(0, urls); // <<< SỬA LỖI 2: Không cần truyền layout
+    runJob(0, urlQueue);
   };
 
   const handleElementSelect = (elementId) => { setSelectedElementId(elementId); };
@@ -418,17 +427,24 @@ function App() {
   };
   
   const handleElementUpdate = (elementId, updates) => {
+    // Convert từ giá trị đã scale (trong DOM) về giá trị gốc (theo VIDEO_WIDTH)
+    if (!canvasRef.current) return;
+    const canvasWidth = canvasRef.current.offsetWidth;
+    // Canvas có aspect-ratio: 9/16, nên chỉ cần tính scale dựa trên width
+    // previewScale để scale từ VIDEO_WIDTH (gốc) lên canvas (hiển thị)
+    const previewScale = canvasWidth / VIDEO_WIDTH;
+    
     setElements(prevElements =>
       prevElements.map(el =>
         el.id === elementId
           ? {
               ...el,
-              width: updates.width,
-              height: updates.height,
-              top: updates.top,
-              left: updates.left,
-              transformX: updates.transformX,
-              transformY: updates.transformY,
+              width: updates.width / previewScale,
+              height: updates.height / previewScale,
+              top: updates.top / previewScale,
+              left: updates.left / previewScale,
+              transformX: updates.transformX / previewScale,
+              transformY: updates.transformY / previewScale,
             }
           : el
       )
@@ -445,17 +461,68 @@ function App() {
           fontRenderScale: itemData.textStyle.fontRenderScale || 1.0,
           boxPadding: itemData.textStyle.boxPadding || 10,
       } : null;
+      
+      let width, height, top, left, transformX, transformY;
+      
+      // Ưu tiên dùng itemData.ui nếu có và giá trị hợp lý (theo VIDEO_WIDTH)
+      // Nếu itemData.ui có giá trị quá lớn (có thể là template cũ đã scale), 
+      // thì dùng itemData.x, y, width, height (đã được convert về VIDEO_WIDTH)
+      if (itemData.ui && itemData.ui.width && itemData.ui.height) {
+        const uiWidth = itemData.ui.width;
+        const uiHeight = itemData.ui.height;
+        
+        // Kiểm tra xem có phải template cũ với giá trị đã scale không
+        // Nếu giá trị quá lớn so với VIDEO_WIDTH, có thể là đã scale
+        if (uiWidth <= VIDEO_WIDTH && uiHeight <= VIDEO_HEIGHT) {
+          // Giá trị hợp lý, dùng ui (template mới)
+          width = uiWidth;
+          height = uiHeight;
+          top = itemData.ui.top || 0;
+          left = itemData.ui.left || 0;
+          transformX = itemData.ui.x || 0;
+          transformY = itemData.ui.y || 0;
+        } else if (itemData.width && itemData.height && itemData.x !== undefined && itemData.y !== undefined) {
+          // Template cũ với ui đã scale, dùng x, y, width, height (đã convert về VIDEO_WIDTH)
+          width = itemData.width;
+          height = itemData.height;
+          // Tính left và top từ x, y (giả sử transformX/Y = 0 trong template cũ)
+          left = itemData.x;
+          top = itemData.y;
+          transformX = 0;
+          transformY = 0;
+        } else {
+          // Vẫn dùng ui nhưng có thể sẽ bị scale sai - để renderCanvasChildren xử lý
+          width = uiWidth;
+          height = uiHeight;
+          top = itemData.ui.top || 0;
+          left = itemData.ui.left || 0;
+          transformX = itemData.ui.x || 0;
+          transformY = itemData.ui.y || 0;
+        }
+      } else if (itemData.width && itemData.height && itemData.x !== undefined && itemData.y !== undefined) {
+        // Template chỉ có x, y, width, height (đã convert về VIDEO_WIDTH)
+        width = itemData.width;
+        height = itemData.height;
+        left = itemData.x;
+        top = itemData.y;
+        transformX = 0;
+        transformY = 0;
+      } else {
+        // Fallback: giá trị mặc định
+        width = 300;
+        height = 300;
+        top = 50;
+        left = 50;
+        transformX = 0;
+        transformY = 0;
+      }
+      
       return {
         id: itemData.id, type: itemData.type, zIndex: itemData.zIndex,
         source: itemData.source, content: itemData.content, 
         style: restoredStyle,
         aspectRatio: itemData.aspectRatio || null,
-        width: itemData.ui ? itemData.ui.width : 300,
-        height: itemData.ui ? itemData.ui.height : 300,
-        top: itemData.ui ? itemData.ui.top : 50,
-        left: itemData.ui ? itemData.ui.left : 50,
-        transformX: itemData.ui ? itemData.ui.x : 0,
-        transformY: itemData.ui ? itemData.ui.y : 0,
+        width, height, top, left, transformX, transformY,
       };
     });
     setElements(newElementsState);
@@ -536,7 +603,6 @@ function App() {
     fullLogRef.current = '';
     setStatusText('Sẵn sàng');
     setProgress(0);
-    if(urlInputRef.current) urlInputRef.current.value = '';
     if(savePathInputRef.current) savePathInputRef.current.value = '';
     setIsRendering(false); setUrlQueue([]); setCurrentQueueIndex(0);
     setUpdateStatus('');
@@ -553,23 +619,36 @@ function App() {
   };
 
   const renderCanvasChildren = () => {
-    const sortedElements = [...elements].sort((a, b) => a.zIndex - b.zIndex);
-    const canvasWidth = canvasRef.current ? canvasRef.current.offsetWidth : (360 * 1.2);
-    const targetWidth = VIDEO_WIDTH; 
-    const previewScale = canvasWidth / targetWidth;
+    // Filter ra text-placeholder nếu showPartText = false
+    const filteredElements = showPartText 
+      ? elements 
+      : elements.filter(el => el.id !== 'text-placeholder');
+    const sortedElements = [...filteredElements].sort((a, b) => a.zIndex - b.zIndex);
+    const canvasWidth = canvasRef.current ? canvasRef.current.offsetWidth : VIDEO_WIDTH;
+    // Canvas có aspect-ratio: 9/16, nên chỉ cần tính scale dựa trên width
+    // previewScale để scale từ VIDEO_WIDTH (gốc) lên canvas (hiển thị)
+    const previewScale = canvasWidth / VIDEO_WIDTH;
     return sortedElements.map(elementInfo => {
       const { id, type, zIndex, source, style, content } = elementInfo;
       const { width, height, top, left, transformX, transformY, aspectRatio } = elementInfo;
       const isSelected = selectedElementId === id;
       const classNames = `edit-item ${type}-item ${isSelected ? 'selected' : ''} ${type === 'image' ? 'custom-image' : ''}`;
       
+      // Scale tất cả kích thước và vị trí theo previewScale
+      const scaledWidth = width * previewScale;
+      const scaledHeight = height * previewScale;
+      const scaledTop = top * previewScale;
+      const scaledLeft = left * previewScale;
+      const scaledTransformX = (transformX || 0) * previewScale;
+      const scaledTransformY = (transformY || 0) * previewScale;
+      
       let elementStyle = { 
         zIndex,
-        width: `${width}px`,
-        height: `${height}px`,
-        top: `${top}px`,
-        left: `${left}px`,
-        transform: `translate(${transformX || 0}px, ${transformY || 0}px)`
+        width: `${scaledWidth}px`,
+        height: `${scaledHeight}px`,
+        top: `${scaledTop}px`,
+        left: `${scaledLeft}px`,
+        transform: `translate(${scaledTransformX}px, ${scaledTransformY}px)`
       };
       
       let pStyle = {}; 
@@ -578,10 +657,11 @@ function App() {
         const scaledOutlineWidth = (style.outlineWidth || 0) * previewScale;
         const scaledShadowDepth = (style.shadowDepth || 0) * previewScale;
         const scaledBoxPadding = (style.boxPadding || 0) * previewScale;
+        const scaledFontSize = (style.reactFontSize || 70) * previewScale;
         elementStyle = {
           ...elementStyle,
           fontFamily: fontName, 
-          fontSize: `${style.reactFontSize}px`,
+          fontSize: `${scaledFontSize}px`,
           color: style.fontColor,
           fontWeight: style.isBold ? 'bold' : 'normal',
           fontStyle: style.isItalic ? 'italic' : 'normal',
@@ -625,7 +705,7 @@ function App() {
     window.electronAPI.quitAndInstall();
   };
   
-  const controlRefs = { urlInputRef, durationInputRef, partsInputRef, savePathInputRef, logOutputRef };
+  const controlRefs = { durationInputRef, partsInputRef, savePathInputRef, logOutputRef };
 
   return (
     <div className="app-container">
@@ -681,6 +761,12 @@ function App() {
         isUpdateDownloaded={isUpdateDownloaded}
         onDownloadUpdate={handleDownloadUpdate}
         onInstallUpdate={handleInstallUpdate}
+        
+        urlQueue={urlQueue}
+        onQueueChange={handleQueueChange}
+        
+        showPartText={showPartText}
+        onTogglePartText={(checked) => setShowPartText(checked)}
       />
     </div>
   );

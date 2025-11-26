@@ -21,17 +21,6 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         interact('.edit-item').off();
     }
     
-    const { offsetWidth: canvasWidth, offsetHeight: canvasHeight } = canvas;
-    const snapRange = 15;
-
-    const snapTargets = [
-      interact.snappers.grid({
-        x: canvasWidth / 2,   
-        y: canvasHeight / 2,  
-        range: snapRange,
-        offset: { x: 0, y: 0 } 
-      }),
-    ];
 
     interact(".edit-item")
       .draggable({
@@ -65,13 +54,6 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
           interact.modifiers.restrictRect({ 
             restriction: "parent", 
             endOnly: true 
-          }),
-          interact.modifiers.snap({
-            targets: snapTargets,
-            relativePoints: [
-              { x: 0.5, y: 0.5 }, { x: 0, y: 0.5 }, { x: 1, y: 0.5 }, { x: 0.5, y: 0 }, { x: 0.5, y: 1 },
-            ],
-            offset: 'parent',
           })
         ],
       })

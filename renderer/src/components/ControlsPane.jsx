@@ -1,4 +1,5 @@
 import React from 'react';
+import QueueManager from './QueueManager';
 
 function ControlsPane(props) {
   const { 
@@ -15,22 +16,25 @@ function ControlsPane(props) {
     isDownloadingUpdate,
     isUpdateDownloaded,
     onDownloadUpdate,
-    onInstallUpdate
+    onInstallUpdate,
+    // <<< NHẬN PROPS CHO QUẢN LÝ HÀNG CHỜ >>> 
+    urlQueue,
+    onQueueChange,
+    // <<< NHẬN PROPS CHO BẬT/TẮT CHỮ "Part..." >>>
+    showPartText,
+    onTogglePartText
   } = props;
   
   return (
     <div className="controls-pane">
       <h2>Bảng điều khiển</h2>
-      <div className="control-group">
-        <label htmlFor="youtube-url">Link YouTube (Mỗi link 1 dòng):</label>
-        <textarea 
-          id="youtube-url" 
-          ref={refs.urlInputRef} 
-          placeholder="Dán MỘT hoặc NHIỀU link YouTube, mỗi link một dòng..." 
-          rows="5"
-          disabled={isRendering || isDownloadingUpdate}
-        />
-      </div>
+      
+      <QueueManager
+        queue={urlQueue || []}
+        onQueueChange={onQueueChange || (() => {})}
+        isRendering={isRendering}
+        disabled={isDownloadingUpdate || isUpdateAvailable}
+      />
       
       <div className="control-group">
         <label htmlFor="split-mode">Phương thức chia video:</label>
@@ -60,6 +64,18 @@ function ControlsPane(props) {
             <button id="addTextButton" onClick={onAddText} disabled={isRendering || isDownloadingUpdate}>Thêm Văn bản</button>
             <button id="addImageButton" onClick={onAddImage} disabled={isRendering || isDownloadingUpdate}>Thêm Ảnh</button>
         </div>
+      </div>
+
+      <div className="control-group">
+        <label className="checkbox-label">
+          <input 
+            type="checkbox" 
+            checked={showPartText} 
+            onChange={(e) => onTogglePartText && onTogglePartText(e.target.checked)}
+            disabled={isRendering || isDownloadingUpdate}
+          />
+          <span>Hiển thị chữ "Part..." trong canvas</span>
+        </label>
       </div>
       
       <div className="control-group">
