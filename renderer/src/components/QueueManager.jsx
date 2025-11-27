@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-function QueueManager({ queue = [], onQueueChange, isRendering, disabled }) {
+function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabled }) {
   const [newUrl, setNewUrl] = useState('');
 
   const handleAddUrl = () => {
@@ -55,7 +55,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, disabled }) {
           <button 
             className="clear-all-btn" 
             onClick={handleClearAll}
-            disabled={disabled || isRendering}
+            disabled={disabled || (isRendering && !isPaused)}
             title="Xóa tất cả"
           >
             🗑️ Xóa hết
@@ -76,13 +76,13 @@ function QueueManager({ queue = [], onQueueChange, isRendering, disabled }) {
               handleAddUrl();
             }
           }}
-          disabled={disabled || isRendering}
+          disabled={disabled}
           rows={3}
         />
         <button 
           className="queue-add-btn"
           onClick={handleAddUrl}
-          disabled={disabled || isRendering || !newUrl.trim()}
+          disabled={disabled || !newUrl.trim()}
         >
           ➕ Thêm
         </button>
@@ -102,7 +102,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, disabled }) {
                 <button
                   className="queue-action-btn"
                   onClick={() => handleMoveUp(index)}
-                  disabled={disabled || isRendering || index === 0}
+                  disabled={disabled || (isRendering && !isPaused) || index === 0}
                   title="Lên trên"
                 >
                   ⬆️
@@ -110,7 +110,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, disabled }) {
                 <button
                   className="queue-action-btn"
                   onClick={() => handleMoveDown(index)}
-                  disabled={disabled || isRendering || index === queue.length - 1}
+                  disabled={disabled || (isRendering && !isPaused) || index === queue.length - 1}
                   title="Xuống dưới"
                 >
                   ⬇️
@@ -118,7 +118,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, disabled }) {
                 <button
                   className="queue-action-btn queue-delete-btn"
                   onClick={() => handleRemoveUrl(index)}
-                  disabled={disabled || isRendering}
+                  disabled={disabled || (isRendering && !isPaused)}
                   title="Xóa"
                 >
                   ❌

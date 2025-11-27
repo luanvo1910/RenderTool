@@ -70,11 +70,14 @@ function App() {
   const [showPartText, setShowPartText] = useState(true); // Bật/tắt hiển thị chữ "Part..."
   
   const [urlQueue, setUrlQueue] = useState([]);
-  const [currentQueueIndex, setCurrentQueueIndex] = useState(0);
-  const [queueStatus, setQueueStatus] = useState('');
+  const [isPaused, setIsPaused] = useState(false);
   
   const handleQueueChange = (newQueue) => {
     setUrlQueue(newQueue);
+  };
+  
+  const handlePauseToggle = () => {
+    setIsPaused(prev => !prev);
   }; 
 
   const [updateInfo, setUpdateInfo] = useState(null); 
@@ -135,10 +138,10 @@ function App() {
   };
 
   useEffect(() => {
-    // <<< SỬA LỖI 2: Cập nhật ref mỗi khi state thay đổi >>>
-    jobStateRef.current = { isRendering, urlQueue, currentQueueIndex, splitMode };
+    // <<< SỬA LỖI 2: Cập nhật ref mỗi khi state thay đổi >>> 
+    jobStateRef.current = { isRendering, urlQueue, isPaused, splitMode };
     layoutRef.current = captureLayoutData();
-  }, [isRendering, urlQueue, currentQueueIndex, splitMode, elements]); // <<< Thêm `elements` vào dependency
+  }, [isRendering, urlQueue, isPaused, splitMode, elements]); // <<< Thêm `elements` vào dependency
 
 
   useEffect(() => {
@@ -178,7 +181,7 @@ function App() {
 
     const removeLogListener = window.electronAPI.onProcessLog((logLine) => {
         // <<< SỬA LỖI 2: Đọc state từ ref >>>
-        const { isRendering, urlQueue, currentQueueIndex } = jobStateRef.current || {};
+        const { isRendering, urlQueue, isPaused } = jobStateRef.current || {};
         
         fullLogRef.current += logLine + '\n';
 
@@ -187,37 +190,56 @@ function App() {
         // Xử lý link thành công hoặc lỗi
         if (logLine.includes('LINK_SUCCESS')) {
             linkProcessedRef.current = true; // Đánh dấu đã xử lý
-            // Link thành công, tiếp tục với link tiếp theo
+            // Link thành công, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             if (isRendering && urlQueue.length > 0) {
-                const nextIndex = currentQueueIndex + 1;
-                if (nextIndex < urlQueue.length) {
-                    setUpdateStatus(`Link ${currentQueueIndex + 1} thành công. Chuyển sang link ${nextIndex + 1}...`);
-                    runJob(nextIndex, urlQueue); 
+                const remainingCount = urlQueue.length - 1;
+                setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+                if (remainingCount > 0) {
+                    setUpdateStatus(`Link thành công. Còn lại ${remainingCount} link trong hàng chờ...`);
+                    // Chỉ tiếp tục với link tiếp theo nếu không đang pause
+                    if (!isPaused) {
+                        setTimeout(() => {
+                            const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                            if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
+                                runJob(updatedQueue);
+                            }
+                        }, 500);
+                    } else {
+                        setUpdateStatus(`Link thành công. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                    }
                 } else {
                     setIsRendering(false);
-                    setUpdateStatus(`Hoàn tất! Đã render ${urlQueue.length} video.`);
+                    setIsPaused(false);
+                    setUpdateStatus(`Hoàn tất! Đã render tất cả video.`);
                     setStatusText('Sẵn sàng');
-                    setUrlQueue([]);
-                    setCurrentQueueIndex(0);
                     setProgress(100);
                 }
             }
         } else if (logLine.includes('LINK_ERROR:')) {
             linkProcessedRef.current = true; // Đánh dấu đã xử lý
-            // Link lỗi, skip và tiếp tục với link tiếp theo
+            // Link lỗi, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             const errorMsg = logLine.replace('LINK_ERROR:', '').trim();
-            setUpdateStatus(`Link ${currentQueueIndex + 1} bị lỗi: ${errorMsg}. Đang bỏ qua và chuyển sang link tiếp theo...`);
             if (isRendering && urlQueue.length > 0) {
-                const nextIndex = currentQueueIndex + 1;
-                if (nextIndex < urlQueue.length) {
-                    // Bỏ qua link lỗi và chuyển sang link tiếp theo
-                    runJob(nextIndex, urlQueue); 
+                const remainingCount = urlQueue.length - 1;
+                setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+                if (remainingCount > 0) {
+                    setUpdateStatus(`Link bị lỗi: ${errorMsg}. Đang bỏ qua...`);
+                    // Chỉ tiếp tục với link tiếp theo nếu không đang pause
+                    if (!isPaused) {
+                        setTimeout(() => {
+                            const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                            if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
+                                runJob(updatedQueue);
+                            }
+                        }, 500);
+                    } else {
+                        setUpdateStatus(`Link bị lỗi: ${errorMsg}. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                    }
                 } else {
                     setIsRendering(false);
-                    setUpdateStatus(`Hoàn tất! Đã xử lý ${urlQueue.length} link (có link bị lỗi đã được bỏ qua).`);
+                    setIsPaused(false);
+                    setUpdateStatus(`Hoàn tất! Đã xử lý tất cả link (có link bị lỗi đã được bỏ qua).`);
                     setStatusText('Sẵn sàng');
-                    setUrlQueue([]);
-                    setCurrentQueueIndex(0);
                     setProgress(100);
                 }
             }
@@ -228,8 +250,6 @@ function App() {
             setIsRendering(false); 
             setUpdateStatus(`LỖI NGHIÊM TRỌNG! Đã dừng hàng đợi.`);
             setStatusText('Đã xảy ra lỗi nghiêm trọng!');
-            setUrlQueue([]);
-            setCurrentQueueIndex(0);
         }
         
         if (logLine.includes('--- Tiến trình kết thúc')) {
@@ -241,27 +261,37 @@ function App() {
                 
                 // Nếu exit code là 0 (thành công) hoặc 1 (lỗi nhưng đã xử lý), tiếp tục
                 if (exitCode === 0 || exitCode === 1) {
-                    const nextIndex = currentQueueIndex + 1;
-                    if (nextIndex < urlQueue.length) {
+                    const remainingCount = urlQueue.length - 1;
+                    setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+                    if (remainingCount > 0) {
                         // Nếu exit code là 1, đây là link lỗi
                         if (exitCode === 1) {
-                            setUpdateStatus(`Link ${currentQueueIndex + 1} bị lỗi. Đang bỏ qua và chuyển sang link tiếp theo...`);
+                            setUpdateStatus(`Link bị lỗi. Đang bỏ qua...`);
                         }
                         linkProcessedRef.current = false; // Reset flag cho link tiếp theo
-                        runJob(nextIndex, urlQueue); 
+                        // Chỉ tiếp tục với link tiếp theo nếu không đang pause
+                        if (!isPaused) {
+                            setTimeout(() => {
+                                const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                                if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
+                                    runJob(updatedQueue);
+                                }
+                            }, 500);
+                        } else {
+                            setUpdateStatus(`Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                        }
                     } else {
                         setIsRendering(false);
-                        const successCount = urlQueue.length; // Có thể đếm chính xác hơn nếu cần
-                        setUpdateStatus(`Hoàn tất! Đã xử lý ${successCount} link.`);
+                        setIsPaused(false);
+                        setUpdateStatus(`Hoàn tất! Đã xử lý tất cả link.`);
                         setStatusText('Sẵn sàng');
-                        setUrlQueue([]);
-                        setCurrentQueueIndex(0);
                         setProgress(100);
                         linkProcessedRef.current = false; // Reset flag
                     }
                 }
             } else if (!isRendering || urlQueue.length === 0) {
                 setIsRendering(false);
+                setIsPaused(false);
                 setStatusText('Hoàn tất!');
                 setProgress(100);
                 linkProcessedRef.current = false; // Reset flag
@@ -289,21 +319,29 @@ function App() {
         // Không dừng queue nữa, chỉ hiển thị cảnh báo và tiếp tục
         setIsCookieRequired(true);
         setStatusText('Cảnh báo: Video yêu cầu cookies.');
-        setUpdateStatus('Link này yêu cầu cookies. Đang bỏ qua và tiếp tục...');
-        // Tiếp tục với link tiếp theo thay vì dừng
-        const { isRendering, urlQueue, currentQueueIndex } = jobStateRef.current || {};
+        // Tiếp tục với link đầu tiên mới (sau khi xóa link hiện tại)
+        const { isRendering, urlQueue, isPaused } = jobStateRef.current || {};
         if (isRendering && urlQueue && urlQueue.length > 0) {
-            const nextIndex = currentQueueIndex + 1;
-            if (nextIndex < urlQueue.length) {
-                setTimeout(() => {
-                    runJob(nextIndex, urlQueue);
-                }, 1000); // Đợi 1 giây trước khi chuyển link
+            const remainingCount = urlQueue.length - 1;
+            setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+            if (remainingCount > 0) {
+                setUpdateStatus('Link này yêu cầu cookies. Đang bỏ qua...');
+                // Chỉ tiếp tục với link tiếp theo nếu không đang pause
+                if (!isPaused) {
+                    setTimeout(() => {
+                        const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                        if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
+                            runJob(updatedQueue);
+                        }
+                    }, 1000); // Đợi 1 giây trước khi chuyển link
+                } else {
+                    setUpdateStatus(`Link này yêu cầu cookies. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                }
             } else {
                 setIsRendering(false);
-                setUpdateStatus(`Hoàn tất! Đã xử lý ${urlQueue.length} link (có link yêu cầu cookies đã được bỏ qua).`);
+                setIsPaused(false);
+                setUpdateStatus(`Hoàn tất! Đã xử lý tất cả link (có link yêu cầu cookies đã được bỏ qua).`);
                 setStatusText('Sẵn sàng');
-                setUrlQueue([]);
-                setCurrentQueueIndex(0);
             }
         }
     });
@@ -343,20 +381,24 @@ function App() {
   }, [log]);
 
 
-  const runJob = (index, queue = urlQueue) => {
-    const url = queue[index]; 
+  const runJob = (queue = urlQueue) => {
+    if (!queue || queue.length === 0) {
+        setIsRendering(false);
+        setUpdateStatus('Hàng chờ trống!');
+        return;
+    }
+    const url = queue[0]; // Luôn lấy link đầu tiên
     if (!url) {
         setIsRendering(false);
         setUpdateStatus('Lỗi hàng đợi!');
-        setUrlQueue([]);
         return;
     }
     linkProcessedRef.current = false; // Reset flag khi bắt đầu link mới
-    setCurrentQueueIndex(index);
-    setUpdateStatus(`Đang xử lý link ${index + 1}/${queue.length}:`); 
+    const totalLinks = queue.length;
+    setUpdateStatus(`Đang xử lý link (còn lại ${totalLinks} link trong hàng chờ):`); 
     setStatusText(`Bắt đầu...`); 
     
-    const startLog = `--- Bắt đầu Link ${index + 1}/${queue.length}: ${url} ---\n`;
+    const startLog = `--- Bắt đầu Link (còn lại ${totalLinks}): ${url} ---\n`;
     setLog(startLog);
     fullLogRef.current = startLog;
     
@@ -381,16 +423,31 @@ function App() {
     if (urlQueue.length === 0) {
       return alert('Vui lòng thêm ít nhất một link YouTube vào hàng chờ.');
     }
-    if (isRendering) return;
+    if (isRendering && !isPaused) return;
     
+    // Nếu đang pause, tiếp tục render
+    if (isPaused) {
+      setIsPaused(false);
+      setUpdateStatus('Đã tiếp tục render hàng chờ...');
+      // Tiếp tục với link đầu tiên trong queue
+      setTimeout(() => {
+        const { urlQueue: currentQueue } = jobStateRef.current || {};
+        if (currentQueue && currentQueue.length > 0) {
+          runJob(currentQueue);
+        }
+      }, 100);
+      return;
+    }
+    
+    // Bắt đầu render mới
     const startLog = `Bắt đầu render hàng đợi ${urlQueue.length} link...\n`;
     setLog(startLog);
     fullLogRef.current = startLog;
     
     setIsRendering(true);
+    setIsPaused(false);
     setUpdateStatus(`Đã xếp ${urlQueue.length} link vào hàng đợi.`); 
-    setCurrentQueueIndex(0); 
-    runJob(0, urlQueue);
+    runJob(urlQueue);
   };
 
   const handleElementSelect = (elementId) => { setSelectedElementId(elementId); };
@@ -592,9 +649,9 @@ function App() {
   };
   const handleReset = () => {
     if (isRendering) { 
-        if (isRendering && window.confirm("Bạn có chắc muốn hủy hàng đợi render? (Video hiện tại sẽ hoàn tất và dừng lại)")) {
-            setUrlQueue([]); 
-            setUpdateStatus('Đang hủy... Chờ video hiện tại hoàn tất.');
+        if (window.confirm("Bạn có chắc muốn hủy hàng đợi render? (Video hiện tại sẽ hoàn tất và dừng lại)")) {
+            setIsPaused(true); // Pause để dừng xử lý link tiếp theo
+            setUpdateStatus('Đã tạm dừng hàng đợi. Video hiện tại sẽ hoàn tất.');
         }
         return; 
     }
@@ -604,7 +661,8 @@ function App() {
     setStatusText('Sẵn sàng');
     setProgress(0);
     if(savePathInputRef.current) savePathInputRef.current.value = '';
-    setIsRendering(false); setUrlQueue([]); setCurrentQueueIndex(0);
+    setIsRendering(false);
+    setIsPaused(false);
     setUpdateStatus('');
     setUpdateInfo(null); setIsDownloadingUpdate(false); setIsUpdateDownloaded(false);
   };
@@ -764,7 +822,8 @@ function App() {
         
         urlQueue={urlQueue}
         onQueueChange={handleQueueChange}
-        
+        isPaused={isPaused}
+        onPauseToggle={handlePauseToggle}
         showPartText={showPartText}
         onTogglePartText={(checked) => setShowPartText(checked)}
       />

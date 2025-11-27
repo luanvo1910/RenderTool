@@ -20,6 +20,8 @@ function ControlsPane(props) {
     // <<< NHẬN PROPS CHO QUẢN LÝ HÀNG CHỜ >>> 
     urlQueue,
     onQueueChange,
+    isPaused,
+    onPauseToggle,
     // <<< NHẬN PROPS CHO BẬT/TẮT CHỮ "Part..." >>>
     showPartText,
     onTogglePartText
@@ -33,6 +35,7 @@ function ControlsPane(props) {
         queue={urlQueue || []}
         onQueueChange={onQueueChange || (() => {})}
         isRendering={isRendering}
+        isPaused={isPaused}
         disabled={isDownloadingUpdate || isUpdateAvailable}
       />
       
@@ -131,9 +134,14 @@ function ControlsPane(props) {
 
       {/* --- NÚT RENDER CHÍNH --- */}
       <div className="control-group action-buttons">
-        <button id="runButton" onClick={onRunRender} disabled={isRendering || isDownloadingUpdate || isUpdateAvailable}>
-          {isRendering ? 'ĐANG RENDER HÀNG ĐỢI...' : 'BẮT ĐẦU RENDER'}
+        <button id="runButton" onClick={onRunRender} disabled={isDownloadingUpdate || isUpdateAvailable}>
+          {isRendering && !isPaused ? 'ĐANG RENDER HÀNG ĐỢI...' : isPaused ? 'TIẾP TỤC RENDER' : 'BẮT ĐẦU RENDER'}
         </button>
+        {isRendering && (
+          <button onClick={onPauseToggle} disabled={isDownloadingUpdate || isUpdateAvailable} style={{backgroundColor: isPaused ? '#28a745' : '#ffc107', color: isPaused ? '#fff' : '#111'}}>
+            {isPaused ? 'TIẾP TỤC' : 'TẠM DỪNG'}
+          </button>
+        )}
       </div>
 
       <div className="log-container">
