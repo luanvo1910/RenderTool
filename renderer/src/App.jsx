@@ -193,17 +193,19 @@ function App() {
             // Link thành công, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             if (isRendering && urlQueue.length > 0) {
                 const remainingCount = urlQueue.length - 1;
-                setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+                const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+                setUrlQueue(updatedQueue);
                 if (remainingCount > 0) {
                     setUpdateStatus(`Link thành công. Còn lại ${remainingCount} link trong hàng chờ...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                     if (!isPaused) {
+                        // Gọi ngay lập tức, không delay
                         setTimeout(() => {
-                            const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                            if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
-                                runJob(updatedQueue);
+                            const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                            if (currentQueue && currentQueue.length > 0 && !currentPaused) {
+                                runJob(currentQueue);
                             }
-                        }, 500);
+                        }, 0);
                     } else {
                         setUpdateStatus(`Link thành công. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
                     }
@@ -221,17 +223,19 @@ function App() {
             const errorMsg = logLine.replace('LINK_ERROR:', '').trim();
             if (isRendering && urlQueue.length > 0) {
                 const remainingCount = urlQueue.length - 1;
-                setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+                const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+                setUrlQueue(updatedQueue);
                 if (remainingCount > 0) {
                     setUpdateStatus(`Link bị lỗi: ${errorMsg}. Đang bỏ qua...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                     if (!isPaused) {
+                        // Gọi ngay lập tức, không delay
                         setTimeout(() => {
-                            const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                            if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
-                                runJob(updatedQueue);
+                            const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                            if (currentQueue && currentQueue.length > 0 && !currentPaused) {
+                                runJob(currentQueue);
                             }
-                        }, 500);
+                        }, 0);
                     } else {
                         setUpdateStatus(`Link bị lỗi: ${errorMsg}. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
                     }
@@ -262,7 +266,8 @@ function App() {
                 // Nếu exit code là 0 (thành công) hoặc 1 (lỗi nhưng đã xử lý), tiếp tục
                 if (exitCode === 0 || exitCode === 1) {
                     const remainingCount = urlQueue.length - 1;
-                    setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+                    const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+                    setUrlQueue(updatedQueue);
                     if (remainingCount > 0) {
                         // Nếu exit code là 1, đây là link lỗi
                         if (exitCode === 1) {
@@ -271,12 +276,13 @@ function App() {
                         linkProcessedRef.current = false; // Reset flag cho link tiếp theo
                         // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                         if (!isPaused) {
+                            // Gọi ngay lập tức, không delay
                             setTimeout(() => {
-                                const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                                if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
-                                    runJob(updatedQueue);
+                                const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                                if (currentQueue && currentQueue.length > 0 && !currentPaused) {
+                                    runJob(currentQueue);
                                 }
-                            }, 500);
+                            }, 0);
                         } else {
                             setUpdateStatus(`Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
                         }
@@ -321,19 +327,21 @@ function App() {
         setStatusText('Cảnh báo: Video yêu cầu cookies.');
         // Tiếp tục với link đầu tiên mới (sau khi xóa link hiện tại)
         const { isRendering, urlQueue, isPaused } = jobStateRef.current || {};
-        if (isRendering && urlQueue && urlQueue.length > 0) {
+            if (isRendering && urlQueue && urlQueue.length > 0) {
             const remainingCount = urlQueue.length - 1;
-            setUrlQueue(prevQueue => prevQueue.slice(1)); // Xóa link đầu tiên
+            const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+            setUrlQueue(updatedQueue);
             if (remainingCount > 0) {
                 setUpdateStatus('Link này yêu cầu cookies. Đang bỏ qua...');
                 // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                 if (!isPaused) {
+                    // Gọi ngay lập tức, không delay
                     setTimeout(() => {
-                        const { urlQueue: updatedQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                        if (updatedQueue && updatedQueue.length > 0 && !currentPaused) {
-                            runJob(updatedQueue);
+                        const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
+                        if (currentQueue && currentQueue.length > 0 && !currentPaused) {
+                            runJob(currentQueue);
                         }
-                    }, 1000); // Đợi 1 giây trước khi chuyển link
+                    }, 0);
                 } else {
                     setUpdateStatus(`Link này yêu cầu cookies. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
                 }
@@ -435,7 +443,7 @@ function App() {
         if (currentQueue && currentQueue.length > 0) {
           runJob(currentQueue);
         }
-      }, 100);
+      }, 0);
       return;
     }
     
