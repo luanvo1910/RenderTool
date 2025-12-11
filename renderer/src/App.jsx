@@ -701,6 +701,19 @@ function App() {
     }
   };
 
+  const handleUpdateCookies = async () => {
+    try {
+      const result = await window.electronAPI.updateCookies();
+      if (result.success) {
+        alert(result.message);
+      } else {
+        alert(result.message);
+      }
+    } catch (error) {
+      alert(`Lỗi: ${error.message}`);
+    }
+  };
+
   const renderCanvasChildren = () => {
     // Filter ra text-placeholder nếu showPartText = false
     const filteredElements = showPartText 
@@ -852,6 +865,7 @@ function App() {
         showPartText={showPartText}
         onTogglePartText={(checked) => setShowPartText(checked)}
         onImportCookiesFromEdge={handleImportCookiesFromEdge}
+        onUpdateCookies={handleUpdateCookies}
       />
     </div>
   );

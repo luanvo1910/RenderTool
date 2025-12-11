@@ -87,59 +87,142 @@ def ffmpeg_safe_path(path):
 
 # --- HÀM ĐỌC COOKIES TỪ EDGE VÀ EXPORT SANG FILE ---
 def export_cookies_from_edge(output_path):
-    """Đọc cookies từ Microsoft Edge và export sang file cookies.txt (Netscape format)"""
+    """Đọc cookies từ Microsoft Edge và export sang file cookies.txt (Netscape format)
+    Sử dụng yt-dlp để đọc cookies từ Edge vì nó đã có sẵn và ổn định hơn"""
     if sys.platform != 'win32':
         raise Exception("Chức năng này chỉ hỗ trợ Windows")
     
     try:
-        # Thử sử dụng browser_cookie3 nếu có
-        try:
-            import browser_cookie3
-        except ImportError:
-            # Nếu không có browser_cookie3, thử cài đặt
-            print("STATUS: Đang cài đặt browser_cookie3 để đọc cookies từ Edge...", flush=True)
-            try:
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install', '--quiet', 'browser_cookie3'
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                import browser_cookie3
-            except Exception as e:
-                raise Exception(f"Không thể cài đặt browser_cookie3: {e}")
+        # Đảm bảo yt-dlp đã được cài đặt
+        if not ensure_yt_dlp():
+            raise Exception("Không thể cài đặt yt-dlp")
         
-        # Đọc cookies từ Edge (không giới hạn domain để lấy tất cả cookies)
-        try:
-            cookies = browser_cookie3.load(browser_name='edge')
-        except Exception as e:
-            raise Exception(f"Không thể đọc cookies từ Edge: {e}")
+        import yt_dlp
         
-        # Chuyển đổi sang format Netscape
-        cookie_count = 0
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            f.write("# https://curl.haxx.se/rfc/cookie_spec.html\n")
-            f.write("# This is a generated file! Do not edit.\n\n")
-            
-            for cookie in cookies:
+        # Sử dụng yt-dlp để test đọc cookies từ Edge với một URL test
+        # Sau đó export cookies bằng cách sử dụng cookie jar
+        print("STATUS: Đang đọc cookies từ Microsoft Edge...", flush=True)
+        
+        # Tạo một YTDL instance với cookiesfrombrowser để test
+        test_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"  # URL test
+        
+        ydl_opts = {
+            'cookiesfrombrowser': ('edge',),
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        try:
+            # Tạo YTDL instance và extract info để load cookies vào cookie jar
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Extract info từ URL test để yt-dlp load cookies từ Edge
                 try:
-                    domain = cookie.domain
-                    domain_specified = 'TRUE' if domain.startswith('.') else 'FALSE'
-                    path = cookie.path or '/'
-                    secure = 'TRUE' if cookie.secure else 'FALSE'
-                    expires = int(cookie.expires) if cookie.expires else 0
-                    name = cookie.name
-                    value = cookie.value
-                    
-                    f.write(f"{domain}\t{domain_specified}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
-                    cookie_count += 1
+                    ydl.extract_info(test_url, download=False)
                 except Exception:
-                    continue  # Bỏ qua cookie lỗi
-        
-        if cookie_count == 0:
-            raise Exception("Không tìm thấy cookies nào trong Edge")
-        
-        return True
+                    # Nếu extract info thất bại nhưng cookies đã được load, vẫn tiếp tục
+                    pass
+                
+                # Lấy cookie jar từ yt-dlp sau khi đã load cookies
+                cookie_jar = ydl.cookiejar
+                
+                if not cookie_jar or len(cookie_jar) == 0:
+                    raise Exception("Không tìm thấy cookies nào trong Edge. Hãy đảm bảo:\n1. Bạn đã đăng nhập YouTube trên Microsoft Edge\n2. Edge đang chạy hoặc đã được đóng bình thường\n3. Thử mở YouTube trên Edge và đăng nhập lại")
+                
+                # Export cookies sang file Netscape format
+                cookie_count = 0
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write("# Netscape HTTP Cookie File\n")
+                    f.write("# https://curl.haxx.se/rfc/cookie_spec.html\n")
+                    f.write("# This is a generated file! Do not edit.\n\n")
+                    
+                    for cookie in cookie_jar:
+                        try:
+                            domain = cookie.domain
+                            if not domain:
+                                continue
+                            
+                            domain_specified = 'TRUE' if domain.startswith('.') else 'FALSE'
+                            path = cookie.path if cookie.path else '/'
+                            secure = 'TRUE' if cookie.secure else 'FALSE'
+                            expires = int(cookie.expires) if cookie.expires else 0
+                            name = cookie.name
+                            value = cookie.value
+                            
+                            if not name:
+                                continue
+                            
+                            f.write(f"{domain}\t{domain_specified}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
+                            cookie_count += 1
+                        except Exception as ex:
+                            continue  # Bỏ qua cookie lỗi
+                
+                if cookie_count == 0:
+                    raise Exception("Không tìm thấy cookies hợp lệ nào trong Edge. Hãy đảm bảo bạn đã đăng nhập YouTube trên Edge.")
+                
+                print(f"STATUS: Đã export {cookie_count} cookies từ Edge", flush=True)
+                return True
+                
+        except yt_dlp.utils.DownloadError as e:
+            error_str = str(e)
+            # Kiểm tra lỗi DPAPI
+            if 'dpapi' in error_str.lower() or 'decrypt' in error_str.lower():
+                raise Exception(
+                    "Không thể giải mã cookies từ Edge (lỗi DPAPI).\n\n"
+                    "CÁCH KHẮC PHỤC:\n"
+                    "1. Đóng hoàn toàn Microsoft Edge (kiểm tra Task Manager)\n"
+                    "2. Thử lại nút 'Import từ Edge'\n"
+                    "3. Hoặc sử dụng nút 'Chọn file cookies.txt' để chọn file cookies thủ công\n\n"
+                    "CÁCH EXPORT COOKIES THỦ CÔNG:\n"
+                    "1. Cài extension 'Get cookies.txt LOCALLY' trên Edge\n"
+                    "2. Truy cập youtube.com và đăng nhập\n"
+                    "3. Click extension và export cookies.txt\n"
+                    "4. Sử dụng nút 'Chọn file cookies.txt' để chọn file đã export"
+                )
+            # Nếu lỗi download nhưng vẫn có cookies, tiếp tục
+            if 'cookies' in error_str.lower() or 'cookie' in error_str.lower():
+                raise Exception(f"Lỗi khi đọc cookies từ Edge: {e}")
+            # Thử lại với cách khác
+            raise Exception(f"Không thể đọc cookies từ Edge. Lỗi: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            # Kiểm tra lỗi DPAPI
+            if 'dpapi' in error_msg.lower() or 'decrypt' in error_msg.lower():
+                raise Exception(
+                    "Không thể giải mã cookies từ Edge (lỗi DPAPI).\n\n"
+                    "CÁCH KHẮC PHỤC:\n"
+                    "1. Đóng hoàn toàn Microsoft Edge (kiểm tra Task Manager)\n"
+                    "2. Thử lại nút 'Import từ Edge'\n"
+                    "3. Hoặc sử dụng nút 'Chọn file cookies.txt' để chọn file cookies thủ công\n\n"
+                    "CÁCH EXPORT COOKIES THỦ CÔNG:\n"
+                    "1. Cài extension 'Get cookies.txt LOCALLY' trên Edge\n"
+                    "2. Truy cập youtube.com và đăng nhập\n"
+                    "3. Click extension và export cookies.txt\n"
+                    "4. Sử dụng nút 'Chọn file cookies.txt' để chọn file đã export"
+                )
+            if 'edge' in error_msg.lower() or 'browser' in error_msg.lower():
+                raise Exception(f"Không thể đọc cookies từ Edge: {error_msg}")
+            raise Exception(f"Lỗi không xác định: {error_msg}")
+            
     except Exception as e:
-        raise Exception(f"Lỗi khi đọc cookies từ Edge: {e}")
+        error_msg = str(e)
+        # Kiểm tra lỗi DPAPI
+        if 'dpapi' in error_msg.lower() or 'decrypt' in error_msg.lower():
+            raise Exception(
+                "Không thể giải mã cookies từ Edge (lỗi DPAPI).\n\n"
+                "CÁCH KHẮC PHỤC:\n"
+                "1. Đóng hoàn toàn Microsoft Edge (kiểm tra Task Manager)\n"
+                "2. Thử lại nút 'Import từ Edge'\n"
+                "3. Hoặc sử dụng nút 'Chọn file cookies.txt' để chọn file cookies thủ công\n\n"
+                "CÁCH EXPORT COOKIES THỦ CÔNG:\n"
+                "1. Cài extension 'Get cookies.txt LOCALLY' trên Edge\n"
+                "2. Truy cập youtube.com và đăng nhập\n"
+                "3. Click extension và export cookies.txt\n"
+                "4. Sử dụng nút 'Chọn file cookies.txt' để chọn file đã export"
+            )
+        # Nếu lỗi liên quan đến cài đặt, hướng dẫn người dùng
+        if 'install' in error_msg.lower() or 'pip' in error_msg.lower():
+            raise Exception(f"Không thể cài đặt thư viện cần thiết. Vui lòng:\n1. Mở Command Prompt với quyền Administrator\n2. Chạy: pip install browser-cookie3 pycryptodomex\n3. Hoặc sử dụng nút 'Chọn file cookies.txt' để chọn file cookies thủ công.\n\nLỗi chi tiết: {error_msg}")
+        raise Exception(f"Lỗi khi đọc cookies từ Edge: {error_msg}")
 
 # --- LOGIC TẢI XUỐNG BẰNG THƯ VIỆN YT-DLP ---
 # Lưu ý: yt_dlp sẽ được import sau khi setup path trong __main__
@@ -165,9 +248,11 @@ def fetch_video_metadata(url, cookies_path, use_browser_cookies=False):
     # Ưu tiên sử dụng cookies từ browser nếu được yêu cầu
     if use_browser_cookies and sys.platform == 'win32':
         try:
+            # yt-dlp hỗ trợ cookiesfrombrowser với tuple (browser_name,) hoặc (browser_name, profile_name)
             ydl_opts['cookiesfrombrowser'] = ('edge',)
-        except Exception:
-            pass  # Fallback to file cookies if browser cookies fail
+        except (KeyError, TypeError, ValueError):
+            # Nếu không hỗ trợ, bỏ qua và dùng file cookies
+            pass
     if cookies_path and os.path.exists(cookies_path): 
         ydl_opts['cookiefile'] = cookies_path
     try:
@@ -202,9 +287,11 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path, use_browser_c
     # Ưu tiên sử dụng cookies từ browser nếu được yêu cầu
     if use_browser_cookies and sys.platform == 'win32':
         try:
+            # yt-dlp hỗ trợ cookiesfrombrowser với tuple (browser_name,) hoặc (browser_name, profile_name)
             ydl_opts['cookiesfrombrowser'] = ('edge',)
-        except Exception:
-            pass  # Fallback to file cookies if browser cookies fail
+        except (KeyError, TypeError, ValueError):
+            # Nếu không hỗ trợ, bỏ qua và dùng file cookies
+            pass
     if cookies_path and os.path.exists(cookies_path): 
         ydl_opts['cookiefile'] = cookies_path
     try:

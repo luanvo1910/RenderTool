@@ -26,7 +26,8 @@ function ControlsPane(props) {
     showPartText,
     onTogglePartText,
     // <<< NHẬN PROPS CHO IMPORT COOKIES >>> 
-    onImportCookiesFromEdge
+    onImportCookiesFromEdge,
+    onUpdateCookies
   } = props;
   
   return (
@@ -75,11 +76,14 @@ function ControlsPane(props) {
         <label>Quản lý Cookies:</label>
         <div className="button-group">
             <button onClick={onImportCookiesFromEdge} disabled={isRendering || isDownloadingUpdate} style={{backgroundColor: '#007bff', color: '#fff'}}>
-              Import Cookies từ Edge
+              Import từ Edge
+            </button>
+            <button onClick={onUpdateCookies} disabled={isRendering || isDownloadingUpdate} style={{backgroundColor: '#28a745', color: '#fff'}}>
+              Chọn file cookies.txt
             </button>
         </div>
         <p style={{fontSize: '12px', color: '#666', marginTop: '5px'}}>
-          Tự động đọc cookies từ Microsoft Edge và lưu vào cookies.txt
+          Import cookies từ Edge hoặc chọn file cookies.txt thủ công
         </p>
       </div>
 
