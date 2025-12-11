@@ -85,6 +85,59 @@ def ffmpeg_safe_path(path):
         return path.replace(":", "\\:")
     return path
 
+def validate_netscape_cookie_file(file_path):
+    """Kiểm tra xem file cookies.txt có đúng format Netscape không"""
+    if not os.path.exists(file_path):
+        return False, "File không tồn tại"
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+        if len(lines) == 0:
+            return False, "File rỗng"
+        
+        # Kiểm tra header Netscape
+        has_header = False
+        for line in lines[:5]:  # Kiểm tra 5 dòng đầu
+            if 'Netscape' in line or 'cookie' in line.lower():
+                has_header = True
+                break
+        
+        # Kiểm tra format: mỗi dòng cookie phải có 7 trường phân cách bởi tab
+        valid_cookie_lines = 0
+        invalid_lines = []
+        
+        for i, line in enumerate(lines, 1):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue  # Bỏ qua comment và dòng trống
+            
+            # Kiểm tra xem có phải là dòng cookie hợp lệ không
+            # Format Netscape: domain\tdomain_specified\tpath\tsecure\texpires\tname\tvalue
+            parts = line.split('\t')
+            if len(parts) == 7:
+                valid_cookie_lines += 1
+            else:
+                # Nếu không phải format tab-separated, có thể là format sai
+                if len(parts) == 1 and ';' in line:
+                    # Có thể là format HTTP cookie string (sai format)
+                    invalid_lines.append(f"Dòng {i}: Format HTTP cookie string (sai)")
+                elif len(line) > 500:
+                    # Dòng quá dài, có thể là nhiều cookies bị nối lại
+                    invalid_lines.append(f"Dòng {i}: Dòng quá dài (có thể nhiều cookies bị nối)")
+        
+        if valid_cookie_lines == 0 and len(invalid_lines) > 0:
+            return False, f"File không đúng format Netscape. {invalid_lines[0] if invalid_lines else 'Không có cookie hợp lệ'}"
+        
+        if len(invalid_lines) > 0 and valid_cookie_lines == 0:
+            return False, f"File không đúng format Netscape. {invalid_lines[0]}"
+        
+        return True, f"File hợp lệ với {valid_cookie_lines} cookies"
+        
+    except Exception as e:
+        return False, f"Lỗi khi đọc file: {e}"
+
 # --- HÀM ĐỌC COOKIES TỪ EDGE VÀ EXPORT SANG FILE ---
 def export_cookies_from_edge(output_path):
     """Đọc cookies từ Microsoft Edge và export sang file cookies.txt (Netscape format)
@@ -450,13 +503,25 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
     
     ffmpeg_path = get_executable_path("ffmpeg", resources_path)
     user_cookie_path = os.path.join(user_data_path, 'cookies.txt')
-    cookies_path_to_use = user_cookie_path if os.path.exists(user_cookie_path) else ""
+    cookies_path_to_use = ""
     
-    # Tự động sử dụng cookies từ Edge nếu không có file cookies.txt và đang chạy trên Windows
+    # Kiểm tra và validate file cookies.txt nếu tồn tại
+    if os.path.exists(user_cookie_path):
+        is_valid, validation_msg = validate_netscape_cookie_file(user_cookie_path)
+        if is_valid:
+            cookies_path_to_use = user_cookie_path
+        else:
+            # File không đúng format, cảnh báo và bỏ qua
+            print(f"WARNING: File cookies.txt không đúng format Netscape: {validation_msg}", flush=True)
+            print(f"WARNING: Sẽ bỏ qua file cookies.txt và thử đọc từ Edge hoặc không dùng cookies", flush=True)
+            # Có thể xóa file cũ để tránh nhầm lẫn (tùy chọn)
+            # os.remove(user_cookie_path)
+    
+    # Tự động sử dụng cookies từ Edge nếu không có file cookies.txt hợp lệ và đang chạy trên Windows
     use_browser_cookies = False
     if not cookies_path_to_use and sys.platform == 'win32':
         use_browser_cookies = True
-        print("STATUS: Không tìm thấy cookies.txt, đang thử đọc cookies từ Microsoft Edge...", flush=True)
+        print("STATUS: Không tìm thấy cookies.txt hợp lệ, đang thử đọc cookies từ Microsoft Edge...", flush=True)
 
     try:
         print("STATUS: Lấy thông tin video...", flush=True)
@@ -544,16 +609,33 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
                 print(f"WARNING: Không thể xóa thư mục tạm: {e}", flush=True)
 
 if __name__ == "__main__":
+    # Kiểm tra xem có --export-cookies không trước khi parse arguments
+    # Để tránh yêu cầu các tham số khác khi chỉ export cookies
+    has_export_cookies = '--export-cookies' in sys.argv
+    
     parser = argparse.ArgumentParser(description="Video Processing Script")
-    parser.add_argument('--resources-path', required=False)
-    parser.add_argument('--user-data-path', required=False)
-    parser.add_argument('--url', type=str, required=False)
-    parser.add_argument('--layout-file', type=str, required=False)
-    parser.add_argument('--parts', type=int, default=1)
-    parser.add_argument('--save-path', type=str, default="")
-    parser.add_argument('--part-duration', type=str, default="0")
-    parser.add_argument('--encoder', type=str, default='libx264')
     parser.add_argument('--export-cookies', type=str, required=False, help='Export cookies from Edge to specified file path')
+    
+    # Nếu có --export-cookies, các tham số khác không bắt buộc
+    if has_export_cookies:
+        parser.add_argument('--resources-path', required=False)
+        parser.add_argument('--user-data-path', required=False)
+        parser.add_argument('--url', type=str, required=False)
+        parser.add_argument('--layout-file', type=str, required=False)
+        parser.add_argument('--parts', type=int, default=1)
+        parser.add_argument('--save-path', type=str, default="")
+        parser.add_argument('--part-duration', type=str, default="0")
+        parser.add_argument('--encoder', type=str, default='libx264')
+    else:
+        parser.add_argument('--resources-path', required=True)
+        parser.add_argument('--user-data-path', required=True)
+        parser.add_argument('--url', type=str, required=True)
+        parser.add_argument('--layout-file', type=str, required=True)
+        parser.add_argument('--parts', type=int, default=1)
+        parser.add_argument('--save-path', type=str, default="")
+        parser.add_argument('--part-duration', type=str, default="0")
+        parser.add_argument('--encoder', type=str, default='libx264')
+    
     args = parser.parse_args()
     
     # Nếu có --export-cookies, chỉ export cookies và thoát
@@ -565,10 +647,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"ERROR: {e}", file=sys.stderr, flush=True)
             sys.exit(1)
-    
-    # Kiểm tra các tham số bắt buộc cho xử lý video
-    if not all([args.resources_path, args.user_data_path, args.url, args.layout_file]):
-        parser.error("Các tham số --resources-path, --user-data-path, --url, và --layout-file là bắt buộc khi không dùng --export-cookies")
     
     # Tự động cài đặt yt-dlp nếu chưa có
     if not ensure_yt_dlp():
