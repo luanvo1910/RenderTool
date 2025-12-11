@@ -10,6 +10,9 @@ import base64
 import io
 import threading
 import math
+import sqlite3
+import tempfile
+import shutil as shutil_module
 
 # --- TỰ ĐỘNG CÀI ĐẶT yt-dlp NẾU THIẾU ---
 def ensure_yt_dlp():
@@ -82,6 +85,62 @@ def ffmpeg_safe_path(path):
         return path.replace(":", "\\:")
     return path
 
+# --- HÀM ĐỌC COOKIES TỪ EDGE VÀ EXPORT SANG FILE ---
+def export_cookies_from_edge(output_path):
+    """Đọc cookies từ Microsoft Edge và export sang file cookies.txt (Netscape format)"""
+    if sys.platform != 'win32':
+        raise Exception("Chức năng này chỉ hỗ trợ Windows")
+    
+    try:
+        # Thử sử dụng browser_cookie3 nếu có
+        try:
+            import browser_cookie3
+        except ImportError:
+            # Nếu không có browser_cookie3, thử cài đặt
+            print("STATUS: Đang cài đặt browser_cookie3 để đọc cookies từ Edge...", flush=True)
+            try:
+                subprocess.check_call([
+                    sys.executable, '-m', 'pip', 'install', '--quiet', 'browser_cookie3'
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                import browser_cookie3
+            except Exception as e:
+                raise Exception(f"Không thể cài đặt browser_cookie3: {e}")
+        
+        # Đọc cookies từ Edge (không giới hạn domain để lấy tất cả cookies)
+        try:
+            cookies = browser_cookie3.load(browser_name='edge')
+        except Exception as e:
+            raise Exception(f"Không thể đọc cookies từ Edge: {e}")
+        
+        # Chuyển đổi sang format Netscape
+        cookie_count = 0
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            f.write("# https://curl.haxx.se/rfc/cookie_spec.html\n")
+            f.write("# This is a generated file! Do not edit.\n\n")
+            
+            for cookie in cookies:
+                try:
+                    domain = cookie.domain
+                    domain_specified = 'TRUE' if domain.startswith('.') else 'FALSE'
+                    path = cookie.path or '/'
+                    secure = 'TRUE' if cookie.secure else 'FALSE'
+                    expires = int(cookie.expires) if cookie.expires else 0
+                    name = cookie.name
+                    value = cookie.value
+                    
+                    f.write(f"{domain}\t{domain_specified}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
+                    cookie_count += 1
+                except Exception:
+                    continue  # Bỏ qua cookie lỗi
+        
+        if cookie_count == 0:
+            raise Exception("Không tìm thấy cookies nào trong Edge")
+        
+        return True
+    except Exception as e:
+        raise Exception(f"Lỗi khi đọc cookies từ Edge: {e}")
+
 # --- LOGIC TẢI XUỐNG BẰNG THƯ VIỆN YT-DLP ---
 # Lưu ý: yt_dlp sẽ được import sau khi setup path trong __main__
 
@@ -96,14 +155,21 @@ def ytdlp_progress_hook(d):
     elif d['status'] == 'finished':
         print("PROGRESS:DOWNLOAD:100", flush=True)
 
-def fetch_video_metadata(url, cookies_path):
+def fetch_video_metadata(url, cookies_path, use_browser_cookies=False):
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True, 
         'noplaylist': True,
         'encoding': 'utf-8',  # Force UTF-8 encoding
     }
-    if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
+    # Ưu tiên sử dụng cookies từ browser nếu được yêu cầu
+    if use_browser_cookies and sys.platform == 'win32':
+        try:
+            ydl_opts['cookiesfrombrowser'] = ('edge',)
+        except Exception:
+            pass  # Fallback to file cookies if browser cookies fail
+    if cookies_path and os.path.exists(cookies_path): 
+        ydl_opts['cookiefile'] = cookies_path
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: return ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as e:
@@ -117,7 +183,7 @@ def fetch_video_metadata(url, cookies_path):
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
         raise Exception(f"Lỗi không xác định: {e}")
 
-def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
+def download_main_video(url, ffmpeg_path, dest_path, cookies_path, use_browser_cookies=False):
     output_template = os.path.splitext(dest_path)[0]
     
     ydl_opts = {
@@ -133,7 +199,14 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path):
         'encoding': 'utf-8',  # Force UTF-8 encoding
     }
     
-    if cookies_path and os.path.exists(cookies_path): ydl_opts['cookiefile'] = cookies_path
+    # Ưu tiên sử dụng cookies từ browser nếu được yêu cầu
+    if use_browser_cookies and sys.platform == 'win32':
+        try:
+            ydl_opts['cookiesfrombrowser'] = ('edge',)
+        except Exception:
+            pass  # Fallback to file cookies if browser cookies fail
+    if cookies_path and os.path.exists(cookies_path): 
+        ydl_opts['cookiefile'] = cookies_path
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
         final_dest_path_with_ext = f"{output_template}.mp4"
@@ -291,10 +364,16 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
     ffmpeg_path = get_executable_path("ffmpeg", resources_path)
     user_cookie_path = os.path.join(user_data_path, 'cookies.txt')
     cookies_path_to_use = user_cookie_path if os.path.exists(user_cookie_path) else ""
+    
+    # Tự động sử dụng cookies từ Edge nếu không có file cookies.txt và đang chạy trên Windows
+    use_browser_cookies = False
+    if not cookies_path_to_use and sys.platform == 'win32':
+        use_browser_cookies = True
+        print("STATUS: Không tìm thấy cookies.txt, đang thử đọc cookies từ Microsoft Edge...", flush=True)
 
     try:
         print("STATUS: Lấy thông tin video...", flush=True)
-        video_info = fetch_video_metadata(url, cookies_path_to_use)
+        video_info = fetch_video_metadata(url, cookies_path_to_use, use_browser_cookies)
         
         title, video_id, thumbnail_url, total_duration = video_info['title'], video_info['id'], video_info['thumbnail'], video_info.get('duration', 0)
         if not total_duration: raise Exception("Could not get video duration.")
@@ -318,7 +397,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         # Sửa: file tạm phải nằm trong temp_dir an toàn
         main_video_path = os.path.join(temp_dir, f"{video_id}.mp4")
         if not os.path.exists(main_video_path):
-             download_main_video(url, ffmpeg_path, main_video_path, cookies_path_to_use)
+             download_main_video(url, ffmpeg_path, main_video_path, cookies_path_to_use, use_browser_cookies)
         
         print("STATUS: Tải thumbnail...", flush=True)
         # Sửa: file tạm phải nằm trong temp_dir an toàn
@@ -379,15 +458,30 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Video Processing Script")
-    parser.add_argument('--resources-path', required=True)
-    parser.add_argument('--user-data-path', required=True)
-    parser.add_argument('--url', type=str, required=True)
-    parser.add_argument('--layout-file', type=str, required=True)
+    parser.add_argument('--resources-path', required=False)
+    parser.add_argument('--user-data-path', required=False)
+    parser.add_argument('--url', type=str, required=False)
+    parser.add_argument('--layout-file', type=str, required=False)
     parser.add_argument('--parts', type=int, default=1)
     parser.add_argument('--save-path', type=str, default="")
     parser.add_argument('--part-duration', type=str, default="0")
     parser.add_argument('--encoder', type=str, default='libx264')
+    parser.add_argument('--export-cookies', type=str, required=False, help='Export cookies from Edge to specified file path')
     args = parser.parse_args()
+    
+    # Nếu có --export-cookies, chỉ export cookies và thoát
+    if args.export_cookies:
+        try:
+            export_cookies_from_edge(args.export_cookies)
+            print(f"SUCCESS: Đã export cookies từ Edge sang {args.export_cookies}", flush=True)
+            sys.exit(0)
+        except Exception as e:
+            print(f"ERROR: {e}", file=sys.stderr, flush=True)
+            sys.exit(1)
+    
+    # Kiểm tra các tham số bắt buộc cho xử lý video
+    if not all([args.resources_path, args.user_data_path, args.url, args.layout_file]):
+        parser.error("Các tham số --resources-path, --user-data-path, --url, và --layout-file là bắt buộc khi không dùng --export-cookies")
     
     # Tự động cài đặt yt-dlp nếu chưa có
     if not ensure_yt_dlp():

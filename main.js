@@ -192,6 +192,62 @@ ipcMain.handle('cookies:update', async () => {
   }
 });
 
+ipcMain.handle('cookies:import-from-edge', async () => {
+  if (process.platform !== 'win32') {
+    return { success: false, message: 'Chức năng này chỉ hỗ trợ Windows' };
+  }
+  
+  try {
+    const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
+    const pythonScriptPath = app.isPackaged
+      ? path.join(resourcesPath, 'editor.py')
+      : path.join(__dirname, 'editor.py');
+    
+    const userDataPath = app.getPath('userData');
+    const finalCookiePath = path.join(userDataPath, 'cookies.txt');
+    
+    const commandToRun = 'py';
+    const args = [pythonScriptPath, '--export-cookies', finalCookiePath];
+    
+    return new Promise((resolve) => {
+      const pythonProcess = spawn(commandToRun, args, {
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1',
+          PYTHONLEGACYWINDOWSSTDIO: '0'
+        }
+      });
+      
+      let stdout = '';
+      let stderr = '';
+      
+      pythonProcess.stdout.on('data', (data) => {
+        stdout += data.toString('utf8');
+      });
+      
+      pythonProcess.stderr.on('data', (data) => {
+        stderr += data.toString('utf8');
+      });
+      
+      pythonProcess.on('close', (code) => {
+        if (code === 0 && stdout.includes('SUCCESS:')) {
+          resolve({ success: true, message: `Đã import cookies từ Microsoft Edge thành công! File đã được lưu tại: ${finalCookiePath}` });
+        } else {
+          const errorMsg = stderr || stdout || 'Lỗi không xác định';
+          resolve({ success: false, message: `Lỗi khi import cookies từ Edge: ${errorMsg}` });
+        }
+      });
+      
+      pythonProcess.on('error', (err) => {
+        resolve({ success: false, message: `Không thể khởi chạy Python: ${err.message}` });
+      });
+    });
+  } catch (error) {
+    return { success: false, message: `Lỗi: ${error.message}` };
+  }
+});
+
 
 ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;

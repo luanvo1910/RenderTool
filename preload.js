@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getFonts: () => ipcRenderer.invoke('fonts:get'),
   updateCookies: () => ipcRenderer.invoke('cookies:update'),
+  importCookiesFromEdge: () => ipcRenderer.invoke('cookies:import-from-edge'),
   onCookieRequired: (callback) => {
     const listener = (_event) => callback();
     ipcRenderer.on('process:cookie-required', listener);
