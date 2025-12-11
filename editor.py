@@ -298,20 +298,32 @@ def fetch_video_metadata(url, cookies_path, use_browser_cookies=False):
         'noplaylist': True,
         'encoding': 'utf-8',  # Force UTF-8 encoding
     }
-    # Ưu tiên sử dụng cookies từ browser nếu được yêu cầu
-    if use_browser_cookies and sys.platform == 'win32':
-        try:
-            # yt-dlp hỗ trợ cookiesfrombrowser với tuple (browser_name,) hoặc (browser_name, profile_name)
-            ydl_opts['cookiesfrombrowser'] = ('edge',)
-        except (KeyError, TypeError, ValueError):
-            # Nếu không hỗ trợ, bỏ qua và dùng file cookies
-            pass
+    
+    # Chỉ dùng file cookies nếu có, không tự động thử browser
     if cookies_path and os.path.exists(cookies_path): 
         ydl_opts['cookiefile'] = cookies_path
+    
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl: return ydl.extract_info(url, download=False)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl: 
+            return ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as e:
-        if 'HTTP Error 403' in str(e):
+        error_str = str(e)
+        # Chỉ khi gặp lỗi 403 mới thử browser cookies
+        if 'HTTP Error 403' in error_str or 'Video yêu cầu cookies' in error_str:
+            if sys.platform == 'win32':
+                # Thử Chrome trước, sau đó Edge
+                for browser in ['chrome', 'edge']:
+                    try:
+                        print(f"STATUS: Video yêu cầu cookies, đang thử đọc từ {browser}...", flush=True)
+                        ydl_opts_retry = ydl_opts.copy()
+                        ydl_opts_retry['cookiesfrombrowser'] = (browser,)
+                        with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
+                            result = ydl_retry.extract_info(url, download=False)
+                            print(f"STATUS: Đã đọc cookies từ {browser} thành công!", flush=True)
+                            return result
+                    except Exception as retry_e:
+                        # Thử browser tiếp theo
+                        continue
             print(f"PYTHON_ERROR: Video yêu cầu cookies. {e}", file=sys.stderr, flush=True)
             raise Exception(f"Video yêu cầu cookies: {e}")
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
@@ -337,23 +349,37 @@ def download_main_video(url, ffmpeg_path, dest_path, cookies_path, use_browser_c
         'encoding': 'utf-8',  # Force UTF-8 encoding
     }
     
-    # Ưu tiên sử dụng cookies từ browser nếu được yêu cầu
-    if use_browser_cookies and sys.platform == 'win32':
-        try:
-            # yt-dlp hỗ trợ cookiesfrombrowser với tuple (browser_name,) hoặc (browser_name, profile_name)
-            ydl_opts['cookiesfrombrowser'] = ('edge',)
-        except (KeyError, TypeError, ValueError):
-            # Nếu không hỗ trợ, bỏ qua và dùng file cookies
-            pass
+    # Chỉ dùng file cookies nếu có, không tự động thử browser
     if cookies_path and os.path.exists(cookies_path): 
         ydl_opts['cookiefile'] = cookies_path
+    
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl: 
+            ydl.download([url])
         final_dest_path_with_ext = f"{output_template}.mp4"
         if os.path.exists(final_dest_path_with_ext) and final_dest_path_with_ext != dest_path:
              os.rename(final_dest_path_with_ext, dest_path)
     except yt_dlp.utils.DownloadError as e:
-        if 'HTTP Error 403' in str(e):
+        error_str = str(e)
+        # Chỉ khi gặp lỗi 403 mới thử browser cookies
+        if 'HTTP Error 403' in error_str or 'Video yêu cầu cookies' in error_str:
+            if sys.platform == 'win32':
+                # Thử Chrome trước, sau đó Edge
+                for browser in ['chrome', 'edge']:
+                    try:
+                        print(f"STATUS: Video yêu cầu cookies, đang thử đọc từ {browser}...", flush=True)
+                        ydl_opts_retry = ydl_opts.copy()
+                        ydl_opts_retry['cookiesfrombrowser'] = (browser,)
+                        with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
+                            ydl_retry.download([url])
+                            print(f"STATUS: Đã đọc cookies từ {browser} thành công!", flush=True)
+                            final_dest_path_with_ext = f"{output_template}.mp4"
+                            if os.path.exists(final_dest_path_with_ext) and final_dest_path_with_ext != dest_path:
+                                os.rename(final_dest_path_with_ext, dest_path)
+                            return  # Thành công, thoát
+                    except Exception as retry_e:
+                        # Thử browser tiếp theo
+                        continue
             print(f"PYTHON_ERROR: Video yêu cầu cookies. {e}", file=sys.stderr, flush=True)
             raise Exception(f"Video yêu cầu cookies: {e}")
         print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
@@ -513,19 +539,14 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         else:
             # File không đúng format, cảnh báo và bỏ qua
             print(f"WARNING: File cookies.txt không đúng format Netscape: {validation_msg}", flush=True)
-            print(f"WARNING: Sẽ bỏ qua file cookies.txt và thử đọc từ Edge hoặc không dùng cookies", flush=True)
+            print(f"WARNING: Sẽ bỏ qua file cookies.txt. Nếu video yêu cầu cookies, sẽ tự động thử đọc từ Chrome/Edge", flush=True)
             # Có thể xóa file cũ để tránh nhầm lẫn (tùy chọn)
             # os.remove(user_cookie_path)
-    
-    # Tự động sử dụng cookies từ Edge nếu không có file cookies.txt hợp lệ và đang chạy trên Windows
-    use_browser_cookies = False
-    if not cookies_path_to_use and sys.platform == 'win32':
-        use_browser_cookies = True
-        print("STATUS: Không tìm thấy cookies.txt hợp lệ, đang thử đọc cookies từ Microsoft Edge...", flush=True)
 
     try:
         print("STATUS: Lấy thông tin video...", flush=True)
-        video_info = fetch_video_metadata(url, cookies_path_to_use, use_browser_cookies)
+        # Không tự động thử browser cookies, chỉ thử khi gặp lỗi 403
+        video_info = fetch_video_metadata(url, cookies_path_to_use, use_browser_cookies=False)
         
         title, video_id, thumbnail_url, total_duration = video_info['title'], video_info['id'], video_info['thumbnail'], video_info.get('duration', 0)
         if not total_duration: raise Exception("Could not get video duration.")
@@ -549,7 +570,8 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         # Sửa: file tạm phải nằm trong temp_dir an toàn
         main_video_path = os.path.join(temp_dir, f"{video_id}.mp4")
         if not os.path.exists(main_video_path):
-             download_main_video(url, ffmpeg_path, main_video_path, cookies_path_to_use, use_browser_cookies)
+             # Không tự động thử browser cookies, chỉ thử khi gặp lỗi 403
+             download_main_video(url, ffmpeg_path, main_video_path, cookies_path_to_use, use_browser_cookies=False)
         
         print("STATUS: Tải thumbnail...", flush=True)
         # Sửa: file tạm phải nằm trong temp_dir an toàn
