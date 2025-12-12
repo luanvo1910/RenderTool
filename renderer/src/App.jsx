@@ -684,23 +684,6 @@ function App() {
     }
   };
 
-  const handleImportCookiesFromEdge = async () => {
-    if (!window.electronAPI.importCookiesFromEdge) {
-      alert('Chức năng này chỉ hỗ trợ trên Windows');
-      return;
-    }
-    try {
-      const result = await window.electronAPI.importCookiesFromEdge();
-      if (result.success) {
-        alert(result.message);
-      } else {
-        alert(result.message);
-      }
-    } catch (error) {
-      alert(`Lỗi: ${error.message}`);
-    }
-  };
-
   const handleUpdateCookies = async () => {
     try {
       const result = await window.electronAPI.updateCookies();
@@ -864,7 +847,6 @@ function App() {
         onPauseToggle={handlePauseToggle}
         showPartText={showPartText}
         onTogglePartText={(checked) => setShowPartText(checked)}
-        onImportCookiesFromEdge={handleImportCookiesFromEdge}
         onUpdateCookies={handleUpdateCookies}
       />
     </div>
