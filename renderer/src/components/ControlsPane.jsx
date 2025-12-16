@@ -26,7 +26,11 @@ function ControlsPane(props) {
     showPartText,
     onTogglePartText,
     // <<< NHẬN PROPS CHO IMPORT COOKIES >>> 
-    onUpdateCookies
+    onUpdateCookies,
+    // Trạng thái lỗi để hiển thị nút xử lý link đầu
+    hasError,
+    onRetryFirst,
+    onSkipFirst,
   } = props;
   
   return (
@@ -155,6 +159,24 @@ function ControlsPane(props) {
           <button onClick={onPauseToggle} disabled={isDownloadingUpdate || isUpdateAvailable} style={{backgroundColor: isPaused ? '#28a745' : '#ffc107', color: isPaused ? '#fff' : '#111'}}>
             {isPaused ? 'TIẾP TỤC' : 'TẠM DỪNG'}
           </button>
+        )}
+        {!isRendering && hasError && (
+          <>
+            <button
+              onClick={onRetryFirst}
+              disabled={isDownloadingUpdate || isUpdateAvailable}
+              style={{ backgroundColor: '#17a2b8', color: '#fff' }}
+            >
+              Thử lại link đầu
+            </button>
+            <button
+              onClick={onSkipFirst}
+              disabled={isDownloadingUpdate || isUpdateAvailable}
+              style={{ backgroundColor: '#dc3545', color: '#fff' }}
+            >
+              Bỏ qua link đầu
+            </button>
+          </>
         )}
       </div>
 

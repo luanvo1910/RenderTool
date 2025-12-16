@@ -68,6 +68,7 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [splitMode, setSplitMode] = useState('duration');
   const [showPartText, setShowPartText] = useState(true); // Bật/tắt hiển thị chữ "Part..."
+  const [hasError, setHasError] = useState(false); // Có lỗi ở link hiện tại nhưng queue vẫn còn
   
   const [urlQueue, setUrlQueue] = useState([]);
   const [isPaused, setIsPaused] = useState(false);
@@ -79,6 +80,31 @@ function App() {
   const handlePauseToggle = () => {
     setIsPaused(prev => !prev);
   }; 
+
+  const handleRetryFirst = () => {
+    if (!urlQueue || urlQueue.length === 0) return;
+    setHasError(false);
+    setIsRendering(true);
+    setIsPaused(false);
+    setTimeout(() => {
+      const { urlQueue: currentQueue } = jobStateRef.current || {};
+      if (currentQueue && currentQueue.length > 0) {
+        runJob(currentQueue);
+      }
+    }, 0);
+  };
+
+  const handleSkipFirst = () => {
+    if (!urlQueue || urlQueue.length === 0) return;
+    const updatedQueue = urlQueue.slice(1);
+    setUrlQueue(updatedQueue);
+    setHasError(false);
+    if (updatedQueue.length > 0) {
+      setUpdateStatus(`Đã bỏ qua link đầu. Còn lại ${updatedQueue.length} link trong hàng chờ.`);
+    } else {
+      setUpdateStatus('Đã bỏ qua link cuối cùng. Hàng chờ trống.');
+    }
+  };
 
   const [updateInfo, setUpdateInfo] = useState(null); 
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
@@ -139,9 +165,9 @@ function App() {
 
   useEffect(() => {
     // <<< SỬA LỖI 2: Cập nhật ref mỗi khi state thay đổi >>> 
-    jobStateRef.current = { isRendering, urlQueue, isPaused, splitMode };
+    jobStateRef.current = { isRendering, urlQueue, isPaused, splitMode, hasError };
     layoutRef.current = captureLayoutData();
-  }, [isRendering, urlQueue, isPaused, splitMode, elements]); // <<< Thêm `elements` vào dependency
+  }, [isRendering, urlQueue, isPaused, splitMode, elements, hasError]); // <<< Thêm `elements` và hasError vào dependency
 
 
   useEffect(() => {
@@ -190,6 +216,7 @@ function App() {
         // Xử lý link thành công hoặc lỗi
         if (logLine.includes('LINK_SUCCESS')) {
             linkProcessedRef.current = true; // Đánh dấu đã xử lý
+            setHasError(false);
             // Link thành công, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             if (isRendering && urlQueue.length > 0) {
                 const remainingCount = urlQueue.length - 1;
@@ -219,14 +246,18 @@ function App() {
             }
         } else if (logLine.includes('LINK_ERROR:')) {
             linkProcessedRef.current = true; // Đánh dấu đã xử lý
+            setHasError(true);
             // Link lỗi, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             const errorMsg = logLine.replace('LINK_ERROR:', '').trim();
+            const currentIndex = urlQueue && urlQueue.length > 0 ? 1 : 0;
+            const prefix = currentIndex > 0 ? `Link #${currentIndex} lỗi: ` : 'Link lỗi: ';
+            const detailedMsg = `${prefix}${errorMsg}`;
             if (isRendering && urlQueue.length > 0) {
                 const remainingCount = urlQueue.length - 1;
                 const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
                 setUrlQueue(updatedQueue);
                 if (remainingCount > 0) {
-                    setUpdateStatus(`Link bị lỗi: ${errorMsg}. Đang bỏ qua...`);
+                    setUpdateStatus(`${detailedMsg}. Đang bỏ qua...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                     if (!isPaused) {
                         // Gọi ngay lập tức, không delay
@@ -251,32 +282,26 @@ function App() {
         
         // Xử lý FATAL_ERROR (lỗi nghiêm trọng không thể tiếp tục)
         if (logLine.includes('FATAL_ERROR:')) {
-            setIsRendering(false); 
-            setUpdateStatus(`LỖI NGHIÊM TRỌNG! Đã dừng hàng đợi.`);
-            setStatusText('Đã xảy ra lỗi nghiêm trọng!');
+            setIsRendering(false);
+            setHasError(true);
+            setUpdateStatus(`LỖI NGHIÊM TRỌNG! Đã dừng hàng đợi nhưng vẫn giữ hàng chờ. Vui lòng kiểm tra log và quyết định Thử lại/Bỏ qua link đầu.`);
+            setStatusText('Đã xảy ra lỗi nghiêm trọng! Hàng chờ vẫn được giữ lại.');
+            setProgress(100);
         }
         
         if (logLine.includes('--- Tiến trình kết thúc')) {
-            // Chỉ xử lý nếu chưa có LINK_SUCCESS hoặc LINK_ERROR (tránh xử lý trùng)
-            if (!linkProcessedRef.current && isRendering && urlQueue.length > 0) {
-                // Kiểm tra exit code từ main.js
-                const exitCodeMatch = logLine.match(/mã (\d+)/);
-                const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : 0;
-                
-                // Nếu exit code là 0 (thành công) hoặc 1 (lỗi nhưng đã xử lý), tiếp tục
-                if (exitCode === 0 || exitCode === 1) {
-                    const remainingCount = urlQueue.length - 1;
-                    const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
-                    setUrlQueue(updatedQueue);
-                    if (remainingCount > 0) {
-                        // Nếu exit code là 1, đây là link lỗi
-                        if (exitCode === 1) {
-                            setUpdateStatus(`Link bị lỗi. Đang bỏ qua...`);
-                        }
-                        linkProcessedRef.current = false; // Reset flag cho link tiếp theo
-                        // Chỉ tiếp tục với link tiếp theo nếu không đang pause
-                        if (!isPaused) {
-                            // Gọi ngay lập tức, không delay
+            // Nếu chưa đánh dấu LINK_SUCCESS / LINK_ERROR, đừng xóa hàng chờ
+            const exitCodeMatch = logLine.match(/mã (\d+)/);
+            const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1]) : 0;
+
+            if (!linkProcessedRef.current) {
+                if (exitCode === 0) {
+                    // Thành công nhưng không có marker -> vẫn coi là xong link đầu
+                    if (isRendering && urlQueue.length > 0) {
+                        const updatedQueue = urlQueue.slice(1);
+                        const remainingCount = updatedQueue.length;
+                        setUrlQueue(updatedQueue);
+                        if (remainingCount > 0 && !isPaused) {
                             setTimeout(() => {
                                 const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
                                 if (currentQueue && currentQueue.length > 0 && !currentPaused) {
@@ -284,16 +309,20 @@ function App() {
                                 }
                             }, 0);
                         } else {
-                            setUpdateStatus(`Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                            setIsRendering(false);
+                            setIsPaused(false);
+                            setStatusText('Sẵn sàng');
+                            setProgress(100);
                         }
-                    } else {
-                        setIsRendering(false);
-                        setIsPaused(false);
-                        setUpdateStatus(`Hoàn tất! Đã xử lý tất cả link.`);
-                        setStatusText('Sẵn sàng');
-                        setProgress(100);
-                        linkProcessedRef.current = false; // Reset flag
                     }
+                } else {
+                    // Lỗi không có marker: giữ nguyên queue để người dùng xem/tiếp tục
+                    setIsRendering(false);
+                    setIsPaused(false);
+                    setHasError(true);
+                    setStatusText('Đã dừng do lỗi (hàng chờ vẫn giữ nguyên).');
+                    setUpdateStatus(`Lỗi (exit code ${exitCode}). Giữ nguyên hàng chờ để bạn thử lại hoặc bỏ qua link đầu.`);
+                    // Không xóa queue, không reset linkProcessedRef để log tiếp theo vẫn chạy bình thường
                 }
             } else if (!isRendering || urlQueue.length === 0) {
                 setIsRendering(false);
@@ -848,6 +877,9 @@ function App() {
         showPartText={showPartText}
         onTogglePartText={(checked) => setShowPartText(checked)}
         onUpdateCookies={handleUpdateCookies}
+        hasError={hasError}
+        onRetryFirst={handleRetryFirst}
+        onSkipFirst={handleSkipFirst}
       />
     </div>
   );
