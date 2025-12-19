@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TemplatePane from './components/TemplatePane';
 import EditorPane from './components/EditorPane';
 import ControlsPane from './components/ControlsPane';
@@ -73,15 +73,15 @@ function App() {
   const [urlQueue, setUrlQueue] = useState([]);
   const [isPaused, setIsPaused] = useState(false);
   
-  const handleQueueChange = (newQueue) => {
+  const handleQueueChange = useCallback((newQueue) => {
     setUrlQueue(newQueue);
-  };
+  }, []);
   
-  const handlePauseToggle = () => {
+  const handlePauseToggle = useCallback(() => {
     setIsPaused(prev => !prev);
-  }; 
+  }, []); 
 
-  const handleRetryFirst = () => {
+  const handleRetryFirst = useCallback(() => {
     if (!urlQueue || urlQueue.length === 0) return;
     setHasError(false);
     setIsRendering(true);
@@ -92,9 +92,9 @@ function App() {
         runJob(currentQueue);
       }
     }, 0);
-  };
+  }, [urlQueue]);
 
-  const handleSkipFirst = () => {
+  const handleSkipFirst = useCallback(() => {
     if (!urlQueue || urlQueue.length === 0) return;
     const updatedQueue = urlQueue.slice(1);
     setUrlQueue(updatedQueue);
@@ -104,7 +104,7 @@ function App() {
     } else {
       setUpdateStatus('Đã bỏ qua link cuối cùng. Hàng chờ trống.');
     }
-  };
+  }, [urlQueue]);
 
   const [updateInfo, setUpdateInfo] = useState(null); 
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
@@ -122,10 +122,13 @@ function App() {
   const layoutRef = useRef(null); // <<< SỬA LỖI 2: Thêm ref cho layout
   const linkProcessedRef = useRef(false); // Đánh dấu đã xử lý link hiện tại (thành công hoặc lỗi)
 
-  const selectedElement = elements.find(e => e.id === selectedElementId);
+  const selectedElement = useMemo(() => 
+    elements.find(e => e.id === selectedElementId), 
+    [elements, selectedElementId]
+  );
 
   // <<< SỬA LỖI 2: Tách hàm captureLayoutData ra ngoài
-  const captureLayoutData = () => {
+  const captureLayoutData = useCallback(() => {
     if (!canvasRef.current) return [];
     // Filter ra text-placeholder nếu showPartText = false
     const filteredElements = showPartText 
@@ -161,13 +164,13 @@ function App() {
       }
       return itemData;
     }).filter(Boolean);
-  };
+  }, [elements, showPartText]);
 
   useEffect(() => {
     // <<< SỬA LỖI 2: Cập nhật ref mỗi khi state thay đổi >>> 
     jobStateRef.current = { isRendering, urlQueue, isPaused, splitMode, hasError };
     layoutRef.current = captureLayoutData();
-  }, [isRendering, urlQueue, isPaused, splitMode, elements, hasError]); // <<< Thêm `elements` và hasError vào dependency
+  }, [isRendering, urlQueue, isPaused, splitMode, hasError, captureLayoutData]);
 
 
   useEffect(() => {
@@ -219,18 +222,20 @@ function App() {
             setHasError(false);
             // Link thành công, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             if (isRendering && urlQueue.length > 0) {
-                const remainingCount = urlQueue.length - 1;
                 const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+                const remainingCount = updatedQueue.length; // Kiểm tra số link còn lại SAU KHI xóa
                 setUrlQueue(updatedQueue);
+                // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
+                jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
                 if (remainingCount > 0) {
                     setUpdateStatus(`Link thành công. Còn lại ${remainingCount} link trong hàng chờ...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                     if (!isPaused) {
-                        // Gọi ngay lập tức, không delay
+                        // Gọi ngay lập tức, không delay - truyền updatedQueue trực tiếp
                         setTimeout(() => {
-                            const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                            if (currentQueue && currentQueue.length > 0 && !currentPaused) {
-                                runJob(currentQueue);
+                            const { isPaused: currentPaused } = jobStateRef.current || {};
+                            if (updatedQueue.length > 0 && !currentPaused) {
+                                runJob(updatedQueue);
                             }
                         }, 0);
                     } else {
@@ -253,18 +258,20 @@ function App() {
             const prefix = currentIndex > 0 ? `Link #${currentIndex} lỗi: ` : 'Link lỗi: ';
             const detailedMsg = `${prefix}${errorMsg}`;
             if (isRendering && urlQueue.length > 0) {
-                const remainingCount = urlQueue.length - 1;
                 const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+                const remainingCount = updatedQueue.length; // Kiểm tra số link còn lại SAU KHI xóa
                 setUrlQueue(updatedQueue);
+                // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
+                jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
                 if (remainingCount > 0) {
                     setUpdateStatus(`${detailedMsg}. Đang bỏ qua...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                     if (!isPaused) {
-                        // Gọi ngay lập tức, không delay
+                        // Gọi ngay lập tức, không delay - truyền updatedQueue trực tiếp
                         setTimeout(() => {
-                            const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                            if (currentQueue && currentQueue.length > 0 && !currentPaused) {
-                                runJob(currentQueue);
+                            const { isPaused: currentPaused } = jobStateRef.current || {};
+                            if (updatedQueue.length > 0 && !currentPaused) {
+                                runJob(updatedQueue);
                             }
                         }, 0);
                     } else {
@@ -301,11 +308,13 @@ function App() {
                         const updatedQueue = urlQueue.slice(1);
                         const remainingCount = updatedQueue.length;
                         setUrlQueue(updatedQueue);
+                        // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
+                        jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
                         if (remainingCount > 0 && !isPaused) {
                             setTimeout(() => {
-                                const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                                if (currentQueue && currentQueue.length > 0 && !currentPaused) {
-                                    runJob(currentQueue);
+                                const { isPaused: currentPaused } = jobStateRef.current || {};
+                                if (updatedQueue.length > 0 && !currentPaused) {
+                                    runJob(updatedQueue);
                                 }
                             }, 0);
                         } else {
@@ -357,18 +366,20 @@ function App() {
         // Tiếp tục với link đầu tiên mới (sau khi xóa link hiện tại)
         const { isRendering, urlQueue, isPaused } = jobStateRef.current || {};
             if (isRendering && urlQueue && urlQueue.length > 0) {
-            const remainingCount = urlQueue.length - 1;
             const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
+            const remainingCount = updatedQueue.length; // Kiểm tra số link còn lại SAU KHI xóa
             setUrlQueue(updatedQueue);
+            // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
+            jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
             if (remainingCount > 0) {
                 setUpdateStatus('Link này yêu cầu cookies. Đang bỏ qua...');
                 // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                 if (!isPaused) {
-                    // Gọi ngay lập tức, không delay
+                    // Gọi ngay lập tức, không delay - truyền updatedQueue trực tiếp
                     setTimeout(() => {
-                        const { urlQueue: currentQueue, isPaused: currentPaused } = jobStateRef.current || {};
-                        if (currentQueue && currentQueue.length > 0 && !currentPaused) {
-                            runJob(currentQueue);
+                        const { isPaused: currentPaused } = jobStateRef.current || {};
+                        if (updatedQueue.length > 0 && !currentPaused) {
+                            runJob(updatedQueue);
                         }
                     }, 0);
                 } else {
@@ -418,7 +429,7 @@ function App() {
   }, [log]);
 
 
-  const runJob = (queue = urlQueue) => {
+  const runJob = useCallback((queue = urlQueue) => {
     if (!queue || queue.length === 0) {
         setIsRendering(false);
         setUpdateStatus('Hàng chờ trống!');
@@ -453,10 +464,10 @@ function App() {
       layout: layoutRef.current, // <<< SỬA LỖI 2: Đọc layout từ ref
       encoder: encoder,
     });
-  };
+  }, [urlQueue, encoder]);
 
 
-  const handleRunRender = () => {
+  const handleRunRender = useCallback(() => {
     if (urlQueue.length === 0) {
       return alert('Vui lòng thêm ít nhất một link YouTube vào hàng chờ.');
     }
@@ -485,7 +496,7 @@ function App() {
     setIsPaused(false);
     setUpdateStatus(`Đã xếp ${urlQueue.length} link vào hàng đợi.`); 
     runJob(urlQueue);
-  };
+  }, [urlQueue, isRendering, isPaused, runJob]);
 
   const handleElementSelect = (elementId) => { setSelectedElementId(elementId); };
   const handleStyleChange = (property, value) => {
@@ -726,7 +737,7 @@ function App() {
     }
   };
 
-  const renderCanvasChildren = () => {
+  const renderCanvasChildren = useCallback(() => {
     // Filter ra text-placeholder nếu showPartText = false
     const filteredElements = showPartText 
       ? elements 
@@ -802,7 +813,7 @@ function App() {
         </div>
       );
     });
-  };
+  }, [elements, showPartText, selectedElementId, systemFonts]);
 
   const handleDownloadUpdate = () => {
     setIsDownloadingUpdate(true);

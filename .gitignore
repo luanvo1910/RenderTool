@@ -8,16 +8,47 @@
 /dist
 /build
 /renderer/dist
+/release
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 
 # PyInstaller files
 *.spec
-downloader.exe  # File bạn tự biên dịch
-
-# Electron-builder output
-/release
+downloader.exe
 
 # Environment variables
 .env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+layout-*.json
 
 # yt_dlp (tự động cài đặt, không cần bundle)
 /resources/yt_dlp
+
+# Test files (nếu có)
+cookies.txt
+test_*.py

@@ -201,7 +201,7 @@ ipcMain.handle('cookies:import-from-edge', async () => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     const pythonScriptPath = app.isPackaged
       ? path.join(resourcesPath, 'editor.py')
-      : path.join(__dirname, 'editor.py');
+      : path.join(__dirname, 'scripts', 'editor.py');
     
     const userDataPath = app.getPath('userData');
     const finalCookiePath = path.join(userDataPath, 'cookies.txt');
@@ -249,12 +249,15 @@ ipcMain.handle('cookies:import-from-edge', async () => {
 });
 
 
+// Store active processes for cleanup
+const activeProcesses = new Map();
+
 ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
     const pythonScriptPath = app.isPackaged
       ? path.join(resourcesPath, 'editor.py')
-      : path.join(resourcesPath, 'editor.py'); 
+      : path.join(__dirname, 'scripts', 'editor.py'); 
       
     const resourcesPathForPython = app.isPackaged
       ? process.resourcesPath
@@ -262,7 +265,13 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
       
     const userDataPath = app.getPath('userData');
     const layoutFilePath = path.join(os.tmpdir(), `layout-${Date.now()}.json`);
-    fs.writeFileSync(layoutFilePath, JSON.stringify(layout));
+    
+    try {
+      fs.writeFileSync(layoutFilePath, JSON.stringify(layout));
+    } catch (error) {
+      sendUpdateMessage('process:log', `FATAL_ERROR: Không thể tạo file layout. ${error.message}`);
+      return;
+    }
   
     const args = [
       pythonScriptPath, '--resources-path', resourcesPathForPython, '--user-data-path', userDataPath,
@@ -272,40 +281,99 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
 
     const commandToRun = 'py';
 
-    const pythonProcess = spawn(commandToRun, args, { 
-      env: { 
-        ...process.env, 
-        PYTHONIOENCODING: 'utf-8',
-        PYTHONUTF8: '1',
-        PYTHONLEGACYWINDOWSSTDIO: '0'
-      } 
-    });
-    
-    pythonProcess.stdout.on('data', (data) => {
-        const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
-        for (const line of lines) {
+    let pythonProcess;
+    try {
+      pythonProcess = spawn(commandToRun, args, { 
+        env: { 
+          ...process.env, 
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1',
+          PYTHONLEGACYWINDOWSSTDIO: '0'
+        } 
+      });
+      
+      // Store process for cleanup
+      const processId = Date.now();
+      activeProcesses.set(processId, { process: pythonProcess, layoutFile: layoutFilePath });
+      
+      pythonProcess.stdout.on('data', (data) => {
+        try {
+          const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
+          for (const line of lines) {
             const logLine = line.trim();
             if (!logLine) continue;
             if (logLine.startsWith('PROGRESS:')) {
-                sendUpdateMessage('process:progress', { type: line.split(':')[1], value: parseFloat(line.split(':')[2]) });
+              const parts = line.split(':');
+              if (parts.length >= 3) {
+                sendUpdateMessage('process:progress', { 
+                  type: parts[1] || 'unknown', 
+                  value: parseFloat(parts[2]) || 0 
+                });
+              }
             } else {
-                sendUpdateMessage('process:log', logLine);
+              sendUpdateMessage('process:log', logLine);
             }
+          }
+        } catch (error) {
+          console.error('Error processing stdout:', error);
         }
-    });
-    
-    pythonProcess.stderr.on('data', (data) => sendUpdateMessage('process:log', `PYTHON_ERROR: ${data.toString('utf8').trim()}`));
-    pythonProcess.on('error', (err) => sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`));
-    pythonProcess.on('close', (code) => {
+      });
+      
+      pythonProcess.stderr.on('data', (data) => {
+        try {
+          sendUpdateMessage('process:log', `PYTHON_ERROR: ${data.toString('utf8').trim()}`);
+        } catch (error) {
+          console.error('Error processing stderr:', error);
+        }
+      });
+      
+      pythonProcess.on('error', (err) => {
+        sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`);
+        activeProcesses.delete(processId);
+        cleanupLayoutFile(layoutFilePath);
+      });
+      
+      pythonProcess.on('close', (code) => {
+        activeProcesses.delete(processId);
         if (code === 403) {
-            sendUpdateMessage('process:cookie-required');
+          sendUpdateMessage('process:cookie-required');
         }
         // Gửi thông báo kết thúc với exit code để frontend biết là lỗi hay thành công
-        const statusMsg = code === 0 ? '--- Tiến trình kết thúc thành công ---' : `--- Tiến trình kết thúc với mã ${code} (lỗi) ---`;
+        const statusMsg = code === 0 
+          ? '--- Tiến trình kết thúc thành công ---' 
+          : `--- Tiến trình kết thúc với mã ${code} (lỗi) ---`;
         sendUpdateMessage('process:log', statusMsg);
         sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
-        if (fs.existsSync(layoutFilePath)) fs.unlinkSync(layoutFilePath);
-    });
+        cleanupLayoutFile(layoutFilePath);
+      });
+    } catch (error) {
+      sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy process. ${error.message}`);
+      cleanupLayoutFile(layoutFilePath);
+    }
+});
+
+function cleanupLayoutFile(layoutFilePath) {
+  try {
+    if (fs.existsSync(layoutFilePath)) {
+      fs.unlinkSync(layoutFilePath);
+    }
+  } catch (error) {
+    console.error('Error cleaning up layout file:', error);
+  }
+}
+
+// Cleanup processes on app quit
+app.on('before-quit', () => {
+  activeProcesses.forEach(({ process: proc }) => {
+    try {
+      if (proc && !proc.killed) {
+        proc.kill();
+      }
+    } catch (error) {
+      console.error('Error killing process:', error);
+    }
+  });
+  activeProcesses.clear();
 });
 
 

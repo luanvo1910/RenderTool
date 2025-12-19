@@ -13,9 +13,9 @@ function QueueModal({
 }) {
   const [newUrl, setNewUrl] = useState('');
 
-  // Debug: Log templates để kiểm tra
+  // Debug: Log templates để kiểm tra (chỉ trong development)
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && process.env.NODE_ENV === 'development') {
       console.log('QueueModal - isOpen:', isOpen);
       console.log('QueueModal - Templates:', templates);
       console.log('QueueModal - Templates count:', templates?.length || 0);

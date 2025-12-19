@@ -17,12 +17,11 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
     const canvas = ref.current;
     if (!canvas) return;
 
-    if (interact('.edit-item').off) {
-        interact('.edit-item').off();
-    }
-    
+    // Cleanup previous interact instances
+    interact('.edit-item').unset();
+    interact('#element-properties').unset();
 
-    interact(".edit-item")
+    const editItemInteract = interact(".edit-item")
       .draggable({
         listeners: { 
           move(event) {
@@ -92,8 +91,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         inertia: true,
       });
 
-
-    interact("#element-properties").draggable({
+    const propertiesInteract = interact("#element-properties").draggable({
         allowFrom: 'h4',
         inertia: true,
         modifiers: [interact.modifiers.restrictRect({ restriction: "parent", endOnly: true })],
@@ -107,6 +105,11 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
         }},
     });
 
+    // Cleanup function
+    return () => {
+      editItemInteract.unset();
+      propertiesInteract.unset();
+    };
   }, [elements.length, ref, onElementUpdate]); 
 
   const handleContextMenu = (e) => {
