@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+import json
 
 
 def get_user_ytdlp_path():
@@ -237,4 +238,102 @@ def download_video_with_ytdlp(
                 "Hãy thử thêm file cookies.txt trong ứng dụng và tải lại."
             )
     raise RuntimeError(f"Tải video thất bại (mã {process.returncode}).")
+
+
+def fetch_video_metadata_with_ytdlp(url, resources_path, cookies_path=None):
+    """
+    Lấy metadata video bằng yt-dlp.exe (CLI) thay vì thư viện Python.
+    Trả về dict JSON giống yt-dlp --dump-single-json.
+    """
+    print("STATUS: Đang lấy metadata video (yt-dlp)...", flush=True)
+
+    yt_dlp_exe_path = os.path.abspath(os.path.join(resources_path, "yt-dlp.exe"))
+    if not os.path.exists(yt_dlp_exe_path):
+        raise FileNotFoundError("Thiếu file thực thi yt-dlp.exe.")
+
+    yt_dlp_exe_path = update_ytdlp(yt_dlp_exe_path)
+
+    node_path, node_prepend = ensure_node_runtime()
+    if node_path:
+        print(f"STATUS: Đã sẵn sàng JS runtime: {node_path}", flush=True)
+    else:
+        print(
+            "WARNING: Thiếu Node.js, một số video có thể khó lấy metadata (challenge solving).",
+            flush=True,
+        )
+
+    command = [
+        yt_dlp_exe_path,
+        "--dump-single-json",
+        "--no-warnings",
+        "--skip-download",
+        "--no-update",
+        "--impersonate",
+        "chrome",
+        "--downloader",
+        "native",
+        "--concurrent-fragments",
+        "5",
+        "--retries",
+        "5",
+        "--fragment-retries",
+        "5",
+        "--force-ipv4",
+        "--remote-components",
+        "ejs:github",
+    ]
+
+    if cookies_path and os.path.exists(cookies_path):
+        print(f"STATUS: Sử dụng file cookies từ: {cookies_path}", flush=True)
+        command.extend(["--cookies", cookies_path])
+
+    command.append(url)
+
+    print("STATUS: Đang thực thi yt-dlp để lấy metadata...", flush=True)
+    env = os.environ.copy()
+    if node_prepend:
+        env["PATH"] = f"{node_prepend}{os.pathsep}{env.get('PATH', '')}"
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        env=env,
+    )
+
+    output_lines = []
+    for line in iter(process.stdout.readline, ""):
+        line = line.strip()
+        if line:
+            # Ghi log ra ngoài để UI vẫn thấy được diễn tiến
+            print(line, flush=True)
+            output_lines.append(line)
+    process.wait()
+
+    full_output = "\n".join(output_lines)
+
+    if process.returncode != 0:
+        lower_output = full_output.lower()
+        if "http error 403" in lower_output or "forbidden" in lower_output:
+            raise Exception(
+                "Video yêu cầu cookies hoặc bị YouTube chặn (HTTP 403). "
+                "Vui lòng cập nhật cookies.txt (đúng định dạng Netscape) từ trình duyệt đã đăng nhập."
+            )
+        raise Exception(f"Lỗi tải metadata (mã {process.returncode}): {full_output}")
+
+    # yt-dlp với --dump-single-json thường chỉ in ra một JSON duy nhất,
+    # nhưng để an toàn ta sẽ tìm từ ký tự '{' đầu tiên.
+    json_start = full_output.find("{")
+    if json_start == -1:
+        raise Exception("Không nhận được metadata JSON hợp lệ từ yt-dlp.")
+
+    json_str = full_output[json_start:]
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as exc:
+        raise Exception(f"Lỗi parse metadata JSON từ yt-dlp: {exc}")
 

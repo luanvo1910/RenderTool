@@ -1,6 +1,6 @@
 {
   "name": "project-rb",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Ứng dụng tự động cắt và dựng video từ YouTube",
   "main": "main.js",
   "scripts": {

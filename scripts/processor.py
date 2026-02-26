@@ -4,7 +4,7 @@ import os
 import sys
 
 from cookies_handler import export_cookies_from_edge
-from downloader_flow import download_video_with_ytdlp
+from downloader_flow import download_video_with_ytdlp, fetch_video_metadata_with_ytdlp
 from ffmpeg_tools import (
     build_ffmpeg_filter,
     download_thumbnail,
@@ -19,37 +19,12 @@ from utils_common import (
 )
 
 
-def fetch_video_metadata(url, cookies_path):
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "encoding": "utf-8",
-        "retries": 3,
-        "fragment_retries": 3,
-        "socket_timeout": 15,
-        "force_ipv4": True,
-    }
-    if cookies_path and os.path.exists(cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
-
-    import yt_dlp
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(url, download=False)
-    except yt_dlp.utils.DownloadError as e:
-        error_str = str(e)
-        if "HTTP Error 403" in error_str or "Video yêu cầu cookies" in error_str:
-            print(f"PYTHON_ERROR: Video yêu cầu cookies. {e}", file=sys.stderr, flush=True)
-            raise Exception(
-                "Video yêu cầu cookies. Vui lòng cung cấp cookies.txt (format Netscape) từ profile đã đăng nhập."
-            )
-        print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        raise Exception(f"Lỗi tải metadata: {e}")
-    except Exception as e:
-        print(f"PYTHON_ERROR: {e}", file=sys.stderr, flush=True)
-        raise Exception(f"Lỗi không xác định: {e}")
+def fetch_video_metadata(url, cookies_path, resources_path):
+    """
+    Wrapper dùng yt-dlp.exe (CLI) để lấy metadata, 
+    tái sử dụng logic từ downloader_flow cho giống DownloadTool.
+    """
+    return fetch_video_metadata_with_ytdlp(url, resources_path, cookies_path)
 
 
 def process_video(url, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path):
@@ -79,7 +54,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
 
     try:
         print("STATUS: Lấy thông tin video...", flush=True)
-        video_info = fetch_video_metadata(url, cookies_path_to_use)
+        video_info = fetch_video_metadata(url, cookies_path_to_use, resources_path)
         title = video_info["title"]
         video_id = video_info["id"]
         thumbnail_url = video_info["thumbnail"]

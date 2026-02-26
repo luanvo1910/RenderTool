@@ -95,6 +95,10 @@ async function loadFonts() {
 }
 
 app.whenReady().then(() => {
+  // Dùng chung một thư mục userData cố định cho cả dev và bản build
+  const fixedUserDataPath = path.join(app.getPath('appData'), 'RedbiVideoDownloader');
+  app.setPath('userData', fixedUserDataPath);
+
   createWindow();
   loadFonts();
   if (!app.isPackaged) {
@@ -200,7 +204,7 @@ ipcMain.handle('cookies:import-from-edge', async () => {
   try {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     const pythonScriptPath = app.isPackaged
-      ? path.join(resourcesPath, 'editor.py')
+      ? path.join(resourcesPath, 'scripts', 'editor.py')
       : path.join(__dirname, 'scripts', 'editor.py');
     
     const userDataPath = app.getPath('userData');
@@ -256,7 +260,7 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
     const pythonScriptPath = app.isPackaged
-      ? path.join(resourcesPath, 'editor.py')
+      ? path.join(resourcesPath, 'scripts', 'editor.py')
       : path.join(__dirname, 'scripts', 'editor.py'); 
       
     const resourcesPathForPython = app.isPackaged
