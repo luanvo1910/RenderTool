@@ -122,9 +122,9 @@ def download_video_with_ytdlp(
     no_playlist=True,
 ):
     """Tải video bằng yt-dlp.exe (theo luồng downloader cũ) và trả về đường dẫn file."""
-    print("STATUS: Bắt đầu quá trình tải...")
-    print(f"STATUS: Bắt đầu xử lý URL: {url}")
-    print(f"STATUS: Sẽ lưu file vào: {output_path}")
+    print("STATUS: Bắt đầu quá trình tải...", flush=True)
+    print(f"STATUS: Bắt đầu xử lý URL: {url}", flush=True)
+    print(f"STATUS: Sẽ lưu file vào: {output_path}", flush=True)
 
     yt_dlp_exe_path = os.path.abspath(os.path.join(resources_path, "yt-dlp.exe"))
     if not os.path.exists(yt_dlp_exe_path):
@@ -133,21 +133,29 @@ def download_video_with_ytdlp(
 
     node_path, node_prepend = ensure_node_runtime()
     if node_path:
-        print(f"STATUS: Đã sẵn sàng JS runtime: {node_path}")
+        print(f"STATUS: Đã sẵn sàng JS runtime cho yt-dlp: {node_path}", flush=True)
     else:
-        print("WARNING: Thiếu Node.js, một số định dạng YouTube có thể bị bỏ qua.")
+        print(
+            "WARNING: Thiếu Node.js, một số định dạng YouTube có thể bị bỏ qua "
+            "(challenge solving có thể kém ổn định hơn).",
+            flush=True,
+        )
 
     command = [
         yt_dlp_exe_path,
         "--impersonate",
         "chrome",
-        "--no-update",
+        "--no-update",  # tắt cảnh báo cập nhật trong output
+        "--downloader",
+        "native",
         "--concurrent-fragments",
         "5",
         "--retries",
         "10",
         "--fragment-retries",
         "10",
+        "--remote-components",
+        "ejs:github",
     ]
     if node_path:
         command.extend(["--js-runtimes", "node"])
@@ -166,34 +174,39 @@ def download_video_with_ytdlp(
                 output_path,
                 "--ffmpeg-location",
                 resources_path,
-                "--restrict-filenames",
+                "--windows-filenames",
             ]
         )
     else:
-        if quality == "1080p":
-            format_selection = "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
-        elif quality == "720p":
-            format_selection = "bestvideo[height<=720]+bestaudio/best[height<=720]"
-        else:
-            format_selection = "bestvideo+bestaudio/best"
+        # Giống DownloadTool: luôn chọn "best" với fallback mềm,
+        # không lock cứng 720p/1080p để tránh lỗi requested format is not available.
+        format_selection = (
+            "bestvideo[height>=720]+bestaudio[asr>=44100]/"
+            "bestvideo[height>=480]+bestaudio[asr>=44100]/"
+            "best[height>=720]/best[height>=480]/"
+            "bestvideo+bestaudio/best/-18/-36/-17/-5"
+        )
         command.extend(
             [
                 "-f",
                 format_selection,
+                "--format-sort",
+                "+height:+tbr:+codec",
                 "--merge-output-format",
                 "mp4",
                 "-o",
                 output_path,
                 "--ffmpeg-location",
                 resources_path,
-                "--restrict-filenames",
+                "--windows-filenames",
             ]
         )
 
     if no_playlist:
         command.append("--no-playlist")
     if download_thumbnail:
-        command.extend(["--write-thumbnail", "--embed-thumbnail"])
+        # Chỉ tải thumbnail, không embed để tránh lỗi làm fail toàn bộ.
+        command.extend(["--write-thumbnail"])
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
         command.extend(["--cookies", cookies_path])
@@ -222,21 +235,58 @@ def download_video_with_ytdlp(
     process.wait()
 
     if process.returncode == 0:
-        print("SUCCESS: Tải và xử lý file thành công!")
+        print("SUCCESS: Tải và xử lý file thành công!", flush=True)
         if not os.path.exists(output_path):
             raise FileNotFoundError("Không tìm thấy file đầu ra sau khi tải.")
         return output_path
 
-    print(f"ERROR: Quá trình thất bại với mã lỗi {process.returncode}.")
+    print(f"ERROR: Quá trình thất bại với mã lỗi {process.returncode}.", flush=True)
     output_text = "\n".join(output_lines).lower()
+
+    # Một số lỗi thường gặp cần giải thích rõ hơn
+    has_only_images = "only images are available" in output_text
+    has_format_error = "requested format is not available" in output_text
+    has_challenge_failed = "challenge solving failed" in output_text
+
+    if has_only_images or (has_format_error and "images" in output_text):
+        print(
+            "\n⚠️  Video này chỉ có thumbnail hoặc không có định dạng video/audio phù hợp để tải.",
+            flush=True,
+        )
+        if has_challenge_failed:
+            print(
+                "⚠️  Có thể do YouTube chặn (challenge solving failed). "
+                "Khuyến nghị cài Node.js hoặc Deno và/hoặc dùng cookies.",
+                flush=True,
+            )
+        print(
+            "💡 Video có thể bị giới hạn độ tuổi/khu vực, ở trạng thái riêng tư "
+            "hoặc URL không trỏ đến video hợp lệ.",
+            flush=True,
+        )
+    elif has_format_error:
+        print(
+            "\n⚠️  yt-dlp báo 'requested format is not available'. "
+            "Ứng dụng đã thử nhiều định dạng (1080p/720p/480p/best) nhưng đều không phù hợp.",
+            flush=True,
+        )
+
     if ("sign in" in output_text and "bot" in output_text) or (
         "from-browser" in output_text and "cookies" in output_text
     ) or ("authentication" in output_text and "required" in output_text):
         if not cookies_path:
             print(
                 "\nGỢI Ý: Video này có thể yêu cầu cookies để xác thực.\n"
-                "Hãy thử thêm file cookies.txt trong ứng dụng và tải lại."
+                "Hãy thử thêm file cookies.txt trong ứng dụng và tải lại.",
+                flush=True,
             )
+        else:
+            print(
+                "\n⚠️  Cookies hiện tại có thể không đủ quyền hoặc đã hết hạn.\n"
+                "💡 Hãy export cookies.txt mới từ trình duyệt đã đăng nhập và cập nhật lại trong ứng dụng.",
+                flush=True,
+            )
+
     raise RuntimeError(f"Tải video thất bại (mã {process.returncode}).")
 
 
