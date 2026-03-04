@@ -314,6 +314,7 @@ def fetch_video_metadata_with_ytdlp(url, resources_path, cookies_path=None):
 
     command = [
         yt_dlp_exe_path,
+        "--ignore-config",  # bỏ qua mọi cấu hình yt-dlp toàn cục của máy client
         "--dump-single-json",
         "--no-warnings",
         "--skip-download",
@@ -331,6 +332,9 @@ def fetch_video_metadata_with_ytdlp(url, resources_path, cookies_path=None):
         "--force-ipv4",
         "--remote-components",
         "ejs:github",
+        # Giống DownloadTool: thử nhiều client YouTube để giả lập nhiều loại thiết bị
+        "--extractor-args",
+        "youtube:player_client=ios,tv_embedded,web_embedded,web,android",
     ]
 
     if cookies_path and os.path.exists(cookies_path):
@@ -372,6 +376,11 @@ def fetch_video_metadata_with_ytdlp(url, resources_path, cookies_path=None):
             raise Exception(
                 "Video yêu cầu cookies hoặc bị YouTube chặn (HTTP 403). "
                 "Vui lòng cập nhật cookies.txt (đúng định dạng Netscape) từ trình duyệt đã đăng nhập."
+            )
+        if "requested format is not available" in lower_output:
+            raise Exception(
+                "yt-dlp báo 'requested format is not available' khi lấy metadata. "
+                "Điều này thường do cấu hình yt-dlp toàn cục trên máy client hoặc video không có format hợp lệ."
             )
         raise Exception(f"Lỗi tải metadata (mã {process.returncode}): {full_output}")
 
