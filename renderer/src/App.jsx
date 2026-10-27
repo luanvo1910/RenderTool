@@ -881,7 +881,7 @@ function App() {
         }
       } else if ((type === 'image' || type === 'thumbnail') && source) {
         elementStyle.backgroundImage = `url('${source}')`;
-        elementStyle.backgroundSize = 'cover';
+        elementStyle.backgroundSize = '100% 100%';
         elementStyle.backgroundPosition = 'center';
         elementStyle.backgroundRepeat = 'no-repeat';
       }

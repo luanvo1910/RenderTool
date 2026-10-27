@@ -21,6 +21,19 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
     interact('.edit-item').unset();
     interact('#element-properties').unset();
 
+    const readTranslate = (target) => {
+      const attrX = target.getAttribute("data-x");
+      const attrY = target.getAttribute("data-y");
+      if (attrX !== null && attrY !== null) {
+        return { x: parseFloat(attrX) || 0, y: parseFloat(attrY) || 0 };
+      }
+      const match = (target.style.transform || "").match(/translate\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
+      if (match) {
+        return { x: parseFloat(match[1]) || 0, y: parseFloat(match[2]) || 0 };
+      }
+      return { x: 0, y: 0 };
+    };
+
     const editItemInteract = interact(".edit-item")
       .draggable({
         listeners: { 
@@ -59,14 +72,42 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
       .resizable({
         edges: { top: true, left: true, bottom: true, right: true },
         listeners: { 
+          start(event) {
+            const target = event.target;
+            const { x, y } = readTranslate(target);
+            target.setAttribute("data-x", x);
+            target.setAttribute("data-y", y);
+            target.setAttribute("data-gap-w", "0");
+            target.setAttribute("data-gap-h", "0");
+          },
           move: function (event) {
             const target = event.target;
+            const edges = event.edges || {};
             let x = parseFloat(target.getAttribute("data-x")) || 0;
             let y = parseFloat(target.getAttribute("data-y")) || 0;
-            
-            target.style.width = `${event.rect.width}px`;
-            target.style.height = `${event.rect.height}px`;
-            
+            let width = event.rect.width;
+            let height = event.rect.height;
+            const aspect = parseFloat(target.getAttribute("data-aspect-ratio"));
+
+            if (target.dataset.type === "image" && aspect > 0) {
+              if (edges.left || edges.right) {
+                height = width / aspect;
+              } else {
+                width = height * aspect;
+              }
+              const gapW = width - event.rect.width;
+              const gapH = height - event.rect.height;
+              const prevGapW = parseFloat(target.getAttribute("data-gap-w")) || 0;
+              const prevGapH = parseFloat(target.getAttribute("data-gap-h")) || 0;
+              if (edges.left) x -= gapW - prevGapW;
+              if (edges.top) y -= gapH - prevGapH;
+              target.setAttribute("data-gap-w", gapW);
+              target.setAttribute("data-gap-h", gapH);
+            }
+
+            target.style.width = `${width}px`;
+            target.style.height = `${height}px`;
+
             x += event.deltaRect.left;
             y += event.deltaRect.top;
             target.style.transform = `translate(${x}px, ${y}px)`;
@@ -78,8 +119,8 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
             const target = event.target;
              if (onElementUpdate) {
               onElementUpdate(target.id, {
-                width: event.rect.width,
-                height: event.rect.height,
+                width: parseFloat(target.style.width),
+                height: parseFloat(target.style.height),
                 top: parseFloat(target.style.top),
                 left: parseFloat(target.style.left),
                 transformX: parseFloat(target.getAttribute("data-x")) || 0,
@@ -88,7 +129,6 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
             }
           }
         },
-        inertia: true,
       });
 
     const propertiesInteract = interact("#element-properties").draggable({

@@ -277,14 +277,13 @@ body {
   font-size: 1.5rem;
   font-weight: bold;
   border-radius: 8px;
-  transition: all 0.3s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   backdrop-filter: blur(5px);
 }
 
 .edit-item:hover {
   border-color: rgba(230, 57, 70, 0.7);
   background: linear-gradient(135deg, rgba(230, 57, 70, 0.25) 0%, rgba(247, 127, 127, 0.25) 100%);
-  transform: scale(1.02);
 }
 
 .edit-item.selected {
@@ -302,10 +301,14 @@ body {
   text-align: center;
 }
 
-.custom-image {
-  background-size: cover;
+.custom-image,
+.custom-image:hover,
+.custom-image.selected {
+  background-color: transparent;
+  background-size: 100% 100%;
   background-position: center;
   background-repeat: no-repeat;
+  backdrop-filter: none;
 }
 
 .text-item {
