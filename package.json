@@ -1,6 +1,6 @@
 {
   "name": "project-rb",
-  "version": "1.5.3",
+  "version": "1.6.0",
   "description": "Ứng dụng tự động cắt và dựng video từ YouTube",
   "main": "main.js",
   "scripts": {
@@ -28,7 +28,6 @@
   "build": {
     "appId": "com.luanvo.rendertool",
     "productName": "RenderTool",
-
     "extraResources": [
       {
         "from": "resources",
@@ -49,7 +48,6 @@
         "to": "editor.py"
       }
     ],
-
     "win": {
       "target": "nsis",
       "icon": "resources/assets/icon.ico"
