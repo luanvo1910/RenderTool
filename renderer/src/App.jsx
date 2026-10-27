@@ -71,6 +71,9 @@ function App() {
   const [hasError, setHasError] = useState(false); // Có lỗi ở link hiện tại nhưng queue vẫn còn
   
   const [urlQueue, setUrlQueue] = useState([]);
+  const [sourceMode, setSourceMode] = useState('link');
+  const [localQueue, setLocalQueue] = useState([]);
+  const [thumbnailFile, setThumbnailFile] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
   
   const handleQueueChange = useCallback((newQueue) => {
@@ -82,29 +85,32 @@ function App() {
   }, []); 
 
   const handleRetryFirst = useCallback(() => {
-    if (!urlQueue || urlQueue.length === 0) return;
+    const state = jobStateRef.current || {};
+    const currentQueue = state.sourceMode === 'local' ? (state.localQueue || []) : (state.urlQueue || []);
+    if (currentQueue.length === 0) return;
     setHasError(false);
     setIsRendering(true);
     setIsPaused(false);
     setTimeout(() => {
-      const { urlQueue: currentQueue } = jobStateRef.current || {};
-      if (currentQueue && currentQueue.length > 0) {
-        runJob(currentQueue);
-      }
+      runJobRef.current?.(currentQueue);
     }, 0);
-  }, [urlQueue]);
+  }, []);
 
   const handleSkipFirst = useCallback(() => {
-    if (!urlQueue || urlQueue.length === 0) return;
-    const updatedQueue = urlQueue.slice(1);
-    setUrlQueue(updatedQueue);
+    const isLocal = sourceMode === 'local';
+    const queue = isLocal ? localQueue : urlQueue;
+    if (!queue || queue.length === 0) return;
+    const updatedQueue = queue.slice(1);
+    if (isLocal) setLocalQueue(updatedQueue);
+    else setUrlQueue(updatedQueue);
     setHasError(false);
+    const itemWord = isLocal ? 'video' : 'link';
     if (updatedQueue.length > 0) {
-      setUpdateStatus(`Đã bỏ qua link đầu. Còn lại ${updatedQueue.length} link trong hàng chờ.`);
+      setUpdateStatus(`Đã bỏ qua ${itemWord} đầu. Còn lại ${updatedQueue.length} ${itemWord} trong hàng chờ.`);
     } else {
-      setUpdateStatus('Đã bỏ qua link cuối cùng. Hàng chờ trống.');
+      setUpdateStatus(`Đã bỏ qua ${itemWord} cuối cùng. Hàng chờ trống.`);
     }
-  }, [urlQueue]);
+  }, [urlQueue, localQueue, sourceMode]);
 
   const [updateInfo, setUpdateInfo] = useState(null); 
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
@@ -119,6 +125,7 @@ function App() {
   const fullLogRef = useRef('');
 
   const jobStateRef = useRef();
+  const runJobRef = useRef(null);
   const layoutRef = useRef(null); // <<< SỬA LỖI 2: Thêm ref cho layout
   const linkProcessedRef = useRef(false); // Đánh dấu đã xử lý link hiện tại (thành công hoặc lỗi)
 
@@ -168,9 +175,19 @@ function App() {
 
   useEffect(() => {
     // <<< SỬA LỖI 2: Cập nhật ref mỗi khi state thay đổi >>> 
-    jobStateRef.current = { isRendering, urlQueue, isPaused, splitMode, hasError };
+    jobStateRef.current = {
+      isRendering,
+      urlQueue,
+      localQueue,
+      sourceMode,
+      thumbnailPath: thumbnailFile?.path || '',
+      isPaused,
+      splitMode,
+      hasError,
+      encoder,
+    };
     layoutRef.current = captureLayoutData();
-  }, [isRendering, urlQueue, isPaused, splitMode, hasError, captureLayoutData]);
+  }, [isRendering, urlQueue, localQueue, sourceMode, thumbnailFile, encoder, isPaused, splitMode, hasError, captureLayoutData]);
 
 
   useEffect(() => {
@@ -210,7 +227,21 @@ function App() {
 
     const removeLogListener = window.electronAPI.onProcessLog((logLine) => {
         // <<< SỬA LỖI 2: Đọc state từ ref >>>
-        const { isRendering, urlQueue, isPaused } = jobStateRef.current || {};
+        const snapshot = jobStateRef.current || {};
+        const { isRendering, isPaused, sourceMode: activeSource } = snapshot;
+        const urlQueue = activeSource === 'local' ? (snapshot.localQueue || []) : (snapshot.urlQueue || []);
+        const itemLabel = activeSource === 'local' ? 'Video' : 'Link';
+        const itemWord = activeSource === 'local' ? 'video' : 'link';
+        const syncQueue = (nextQueue) => {
+            const current = jobStateRef.current || {};
+            if (current.sourceMode === 'local') {
+                setLocalQueue(nextQueue);
+                jobStateRef.current = { ...current, localQueue: nextQueue };
+            } else {
+                setUrlQueue(nextQueue);
+                jobStateRef.current = { ...current, urlQueue: nextQueue };
+            }
+        };
         
         fullLogRef.current += logLine + '\n';
 
@@ -224,11 +255,9 @@ function App() {
             if (isRendering && urlQueue.length > 0) {
                 const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
                 const remainingCount = updatedQueue.length; // Kiểm tra số link còn lại SAU KHI xóa
-                setUrlQueue(updatedQueue);
-                // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
-                jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
+                syncQueue(updatedQueue);
                 if (remainingCount > 0) {
-                    setUpdateStatus(`Link thành công. Còn lại ${remainingCount} link trong hàng chờ...`);
+                    setUpdateStatus(`${itemLabel} thành công. Còn lại ${remainingCount} ${itemWord} trong hàng chờ...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
                     if (!isPaused) {
                         // Gọi ngay lập tức, không delay - truyền updatedQueue trực tiếp
@@ -239,7 +268,7 @@ function App() {
                             }
                         }, 0);
                     } else {
-                        setUpdateStatus(`Link thành công. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                        setUpdateStatus(`${itemLabel} thành công. Đã tạm dừng. Còn lại ${remainingCount} ${itemWord} trong hàng chờ.`);
                     }
                 } else {
                     setIsRendering(false);
@@ -255,14 +284,12 @@ function App() {
             // Link lỗi, luôn xóa link đầu tiên khỏi queue (bất kể pause hay không)
             const errorMsg = logLine.replace('LINK_ERROR:', '').trim();
             const currentIndex = urlQueue && urlQueue.length > 0 ? 1 : 0;
-            const prefix = currentIndex > 0 ? `Link #${currentIndex} lỗi: ` : 'Link lỗi: ';
+            const prefix = currentIndex > 0 ? `${itemLabel} #${currentIndex} lỗi: ` : `${itemLabel} lỗi: `;
             const detailedMsg = `${prefix}${errorMsg}`;
             if (isRendering && urlQueue.length > 0) {
                 const updatedQueue = urlQueue.slice(1); // Xóa link đầu tiên
                 const remainingCount = updatedQueue.length; // Kiểm tra số link còn lại SAU KHI xóa
-                setUrlQueue(updatedQueue);
-                // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
-                jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
+                syncQueue(updatedQueue);
                 if (remainingCount > 0) {
                     setUpdateStatus(`${detailedMsg}. Đang bỏ qua...`);
                     // Chỉ tiếp tục với link tiếp theo nếu không đang pause
@@ -275,7 +302,7 @@ function App() {
                             }
                         }, 0);
                     } else {
-                        setUpdateStatus(`Link bị lỗi: ${errorMsg}. Đã tạm dừng. Còn lại ${remainingCount} link trong hàng chờ.`);
+                        setUpdateStatus(`${itemLabel} bị lỗi: ${errorMsg}. Đã tạm dừng. Còn lại ${remainingCount} ${itemWord} trong hàng chờ.`);
                     }
                 } else {
                     setIsRendering(false);
@@ -307,9 +334,7 @@ function App() {
                     if (isRendering && urlQueue.length > 0) {
                         const updatedQueue = urlQueue.slice(1);
                         const remainingCount = updatedQueue.length;
-                        setUrlQueue(updatedQueue);
-                        // Cập nhật ref ngay lập tức để đảm bảo có giá trị mới nhất
-                        jobStateRef.current = { ...jobStateRef.current, urlQueue: updatedQueue };
+                        syncQueue(updatedQueue);
                         if (remainingCount > 0 && !isPaused) {
                             setTimeout(() => {
                                 const { isPaused: currentPaused } = jobStateRef.current || {};
@@ -429,46 +454,64 @@ function App() {
   }, [log]);
 
 
-  const runJob = useCallback((queue = urlQueue) => {
-    if (!queue || queue.length === 0) {
+  const runJob = useCallback((queue) => {
+    const state = jobStateRef.current || {};
+    const isLocal = state.sourceMode === 'local';
+    const activeQueue = queue && queue.length ? queue : (isLocal ? state.localQueue : state.urlQueue);
+    const itemWord = isLocal ? 'video' : 'link';
+    if (!activeQueue || activeQueue.length === 0) {
         setIsRendering(false);
-        setUpdateStatus('Hàng chờ trống!');
+        setUpdateStatus(isLocal ? 'Chưa chọn video trên máy.' : 'Hàng chờ trống!');
         return;
     }
-    const url = queue[0]; // Luôn lấy link đầu tiên
-    if (!url) {
+    const item = activeQueue[0];
+    if (!item) {
         setIsRendering(false);
         setUpdateStatus('Lỗi hàng đợi!');
         return;
     }
-    linkProcessedRef.current = false; // Reset flag khi bắt đầu link mới
-    const totalLinks = queue.length;
-    setUpdateStatus(`Đang xử lý link (còn lại ${totalLinks} link trong hàng chờ):`); 
+    linkProcessedRef.current = false; // Reset flag khi bắt đầu mục mới
+    const totalItems = activeQueue.length;
+    setUpdateStatus(`Đang xử lý ${itemWord} (còn lại ${totalItems} ${itemWord} trong hàng chờ):`); 
     setStatusText(`Bắt đầu...`); 
     
-    const startLog = `--- Bắt đầu Link (còn lại ${totalLinks}): ${url} ---\n`;
+    const startLog = `--- Bắt đầu ${itemWord} (còn lại ${totalItems}): ${item} ---\n`;
     setLog(startLog);
     fullLogRef.current = startLog;
     
     setProgress(0);
     setIsCookieRequired(false);
-    const { splitMode: currentSplitMode } = jobStateRef.current;
+    const currentSplitMode = state.splitMode;
     const durationValue = (currentSplitMode === 'duration') 
                             ? (durationInputRef.current ? durationInputRef.current.value : 120) 
                             : 0; 
     window.electronAPI.runProcessWithLayout({
-      url: url, 
+      source: isLocal ? 'local' : 'link',
+      url: item,
+      videoPath: isLocal ? item : '',
+      thumbnailPath: isLocal ? (state.thumbnailPath || '') : '',
       parts: partsInputRef.current.value,
       partDuration: durationValue, 
       savePath: savePathInputRef.current.value,
       layout: layoutRef.current, // <<< SỬA LỖI 2: Đọc layout từ ref
-      encoder: encoder,
+      encoder: state.encoder || encoder,
     });
-  }, [urlQueue, encoder]);
+  }, [encoder]);
+
+  runJobRef.current = runJob;
 
 
   const handleRunRender = useCallback(() => {
-    if (urlQueue.length === 0) {
+    const isLocal = sourceMode === 'local';
+    const queue = isLocal ? localQueue : urlQueue;
+    if (isLocal) {
+      if (queue.length === 0) {
+        return alert('Vui lòng chọn ít nhất một video có sẵn trên máy.');
+      }
+      if (!thumbnailFile?.path) {
+        return alert('Vui lòng chọn một ảnh có sẵn trên máy để thay thumbnail.');
+      }
+    } else if (queue.length === 0) {
       return alert('Vui lòng thêm ít nhất một link YouTube vào hàng chờ.');
     }
     if (isRendering && !isPaused) return;
@@ -477,9 +520,9 @@ function App() {
     if (isPaused) {
       setIsPaused(false);
       setUpdateStatus('Đã tiếp tục render hàng chờ...');
-      // Tiếp tục với link đầu tiên trong queue
       setTimeout(() => {
-        const { urlQueue: currentQueue } = jobStateRef.current || {};
+        const current = jobStateRef.current || {};
+        const currentQueue = current.sourceMode === 'local' ? current.localQueue : current.urlQueue;
         if (currentQueue && currentQueue.length > 0) {
           runJob(currentQueue);
         }
@@ -488,15 +531,16 @@ function App() {
     }
     
     // Bắt đầu render mới
-    const startLog = `Bắt đầu render hàng đợi ${urlQueue.length} link...\n`;
+    const itemWord = isLocal ? 'video' : 'link';
+    const startLog = `Bắt đầu render hàng đợi ${queue.length} ${itemWord}...\n`;
     setLog(startLog);
     fullLogRef.current = startLog;
     
     setIsRendering(true);
     setIsPaused(false);
-    setUpdateStatus(`Đã xếp ${urlQueue.length} link vào hàng đợi.`); 
-    runJob(urlQueue);
-  }, [urlQueue, isRendering, isPaused, runJob]);
+    setUpdateStatus(`Đã xếp ${queue.length} ${itemWord} vào hàng đợi.`); 
+    runJob(queue);
+  }, [urlQueue, localQueue, sourceMode, thumbnailFile, isRendering, isPaused, runJob]);
 
   const handleElementSelect = (elementId) => { setSelectedElementId(elementId); };
   const handleStyleChange = (property, value) => {
@@ -624,7 +668,10 @@ function App() {
       
       return {
         id: itemData.id, type: itemData.type, zIndex: itemData.zIndex,
-        source: itemData.source, content: itemData.content, 
+        source: itemData.id === 'thumbnail-placeholder' && thumbnailFile?.dataUrl
+          ? thumbnailFile.dataUrl
+          : itemData.source,
+        content: itemData.content, 
         style: restoredStyle,
         aspectRatio: itemData.aspectRatio || null,
         width, height, top, left, transformX, transformY,
@@ -691,6 +738,37 @@ function App() {
     });
   };
   
+  const applyThumbnailPreview = (dataUrl) => {
+    setElements(prev => prev.map(el =>
+      el.id === 'thumbnail-placeholder' ? { ...el, source: dataUrl || null } : el
+    ));
+  };
+
+  const handleAddLocalVideos = async () => {
+    const paths = await window.electronAPI.openVideosDialog();
+    if (!paths || paths.length === 0) return;
+    setLocalQueue(prev => {
+      const existing = new Set(prev);
+      const next = [...prev];
+      paths.forEach(filePath => {
+        if (!existing.has(filePath)) next.push(filePath);
+      });
+      return next;
+    });
+  };
+
+  const handlePickThumbnail = async () => {
+    const imageData = await window.electronAPI.openThumbnailFileDialog();
+    if (!imageData || !imageData.path) return;
+    setThumbnailFile(imageData);
+    applyThumbnailPreview(imageData.dataUrl);
+  };
+
+  const handleClearThumbnail = () => {
+    setThumbnailFile(null);
+    applyThumbnailPreview(null);
+  };
+
   const handleBrowse = async () => {
     const path = await window.electronAPI.openDirectoryDialog();
     if (path) savePathInputRef.current.value = path;
@@ -703,7 +781,11 @@ function App() {
         }
         return; 
     }
-    setElements(initialElements); 
+    setElements(initialElements.map(el => (
+      el.id === 'thumbnail-placeholder' && thumbnailFile?.dataUrl
+        ? { ...el, source: thumbnailFile.dataUrl }
+        : el
+    ))); 
     setLog(''); 
     fullLogRef.current = '';
     setStatusText('Sẵn sàng');
@@ -797,8 +879,11 @@ function App() {
                 boxSizing: 'border-box', 
             };
         }
-      } else if (type === 'image' && source) {
+      } else if ((type === 'image' || type === 'thumbnail') && source) {
         elementStyle.backgroundImage = `url('${source}')`;
+        elementStyle.backgroundSize = 'cover';
+        elementStyle.backgroundPosition = 'center';
+        elementStyle.backgroundRepeat = 'no-repeat';
       }
       return (
         <div
@@ -883,6 +968,14 @@ function App() {
         
         urlQueue={urlQueue}
         onQueueChange={handleQueueChange}
+        sourceMode={sourceMode}
+        onSourceModeChange={(e) => setSourceMode(e.target.value)}
+        localQueue={localQueue}
+        onAddLocalVideos={handleAddLocalVideos}
+        onLocalQueueChange={setLocalQueue}
+        thumbnailFile={thumbnailFile}
+        onPickThumbnail={handlePickThumbnail}
+        onClearThumbnail={handleClearThumbnail}
         isPaused={isPaused}
         onPauseToggle={handlePauseToggle}
         showPartText={showPartText}

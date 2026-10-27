@@ -1042,6 +1042,59 @@ button:disabled {
   font-style: italic;
 }
 
+.local-pick-btn {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.local-thumb-block {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.local-thumb-block h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--primary-text);
+}
+
+.local-thumb-preview {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.local-thumb-preview img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: #111;
+}
+
+.local-thumb-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.local-thumb-name {
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--primary-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.local-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--secondary-text);
+}
+
 .queue-item {
   display: flex;
   align-items: center;

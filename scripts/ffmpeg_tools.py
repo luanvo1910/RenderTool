@@ -66,7 +66,68 @@ def download_thumbnail(thumbnail_url, dest_path):
         raise FileNotFoundError("Could not download thumbnail")
 
 
-def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_path):
+def probe_video(ffprobe_path, video_path):
+    """Đọc thời lượng và kiểm tra video local có track audio hay không."""
+    import subprocess
+    import sys
+
+    if not os.path.exists(ffprobe_path):
+        raise FileNotFoundError(f"Không tìm thấy ffprobe tại: {ffprobe_path}")
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Không tìm thấy video: {video_path}")
+
+    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    duration_proc = subprocess.run(
+        [
+            ffprobe_path,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            video_path,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=creationflags,
+    )
+    if duration_proc.returncode != 0:
+        detail = (duration_proc.stderr or duration_proc.stdout or "").strip()
+        raise Exception(f"Không đọc được thời lượng video. {detail}")
+    try:
+        duration = float((duration_proc.stdout or "").strip())
+    except ValueError:
+        duration = 0.0
+    if duration <= 0:
+        raise Exception("Không đọc được thời lượng video.")
+
+    audio_proc = subprocess.run(
+        [
+            ffprobe_path,
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            video_path,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=creationflags,
+    )
+    has_audio = bool((audio_proc.stdout or "").strip())
+    return duration, has_audio
+
+
+def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_path, audio_label="0:a", audio_start=None):
     """Generate ffmpeg filter_complex for overlay + text."""
     layout.sort(key=lambda x: int(x.get("zIndex", 0)))
     filters, last_stream = ["color=s=720x1280:c=black[canvas]"], "canvas"
@@ -150,7 +211,8 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
         filters.append(f"[{last_stream}]copy[final_v]")
     else:
         filters.append("[canvas]copy[final_v]")
-    filters.append(f"[0:a]atrim=start={start}:duration={duration},asetpts=PTS-STARTPTS[final_a]")
+    trim_start = start if audio_start is None else audio_start
+    filters.append(f"[{audio_label}]atrim=start={trim_start}:duration={duration},asetpts=PTS-STARTPTS[final_a]")
     return ";".join(filters), "final_v"
 
 

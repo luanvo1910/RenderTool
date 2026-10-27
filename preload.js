@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // --- Các hàm cũ (không đổi) ---
   openImageDialog: () => ipcRenderer.invoke('dialog:openImage'),
   openDirectoryDialog: () => ipcRenderer.invoke('dialog:openDirectory'),
+  openVideosDialog: () => ipcRenderer.invoke('dialog:openVideos'),
+  openThumbnailFileDialog: () => ipcRenderer.invoke('dialog:openThumbnailFile'),
   getTemplates: () => ipcRenderer.invoke('templates:get'),
   saveTemplate: (template) => ipcRenderer.invoke('templates:save', template),
   deleteTemplate: (templateId) => ipcRenderer.invoke('templates:delete', templateId),

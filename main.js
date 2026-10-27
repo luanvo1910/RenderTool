@@ -177,6 +177,43 @@ ipcMain.handle('dialog:openDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
   return canceled ? null : filePaths[0];
 });
+
+ipcMain.handle('dialog:openVideos', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn video có sẵn trên máy',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Videos', extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v', 'flv'] }],
+  });
+  if (canceled || !filePaths || filePaths.length === 0) return [];
+  return filePaths;
+});
+
+ipcMain.handle('dialog:openThumbnailFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn ảnh thay thumbnail',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+  });
+  if (canceled || !filePaths || filePaths.length === 0) return null;
+  try {
+    const filePath = filePaths[0];
+    const fileData = fs.readFileSync(filePath);
+    const image = nativeImage.createFromBuffer(fileData);
+    const size = image.getSize();
+    const ext = path.extname(filePath).substring(1).toLowerCase();
+    const mime = ext === 'jpg' ? 'jpeg' : ext;
+    return {
+      path: filePath,
+      name: path.basename(filePath),
+      dataUrl: `data:image/${mime};base64,${fileData.toString('base64')}`,
+      width: size.width,
+      height: size.height,
+    };
+  } catch (error) {
+    console.error('Lỗi đọc ảnh thumbnail:', error);
+    return null;
+  }
+});
 ipcMain.handle('cookies:update', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     title: 'Chọn file cookies.txt mới', properties: ['openFile'],
@@ -256,7 +293,7 @@ ipcMain.handle('cookies:import-from-edge', async () => {
 // Store active processes for cleanup
 const activeProcesses = new Map();
 
-ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder }) => {
+ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder, source, videoPath, thumbnailPath }) => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
     const pythonScriptPath = app.isPackaged
@@ -277,9 +314,14 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
       return;
     }
   
+    const sourceMode = source === 'local' ? 'local' : 'link';
     const args = [
       pythonScriptPath, '--resources-path', resourcesPathForPython, '--user-data-path', userDataPath,
-      '--url', url, '--parts', String(parts), '--save-path', savePath,
+      '--source', sourceMode,
+      '--url', url || '',
+      '--video-path', videoPath || '',
+      '--thumbnail-path', thumbnailPath || '',
+      '--parts', String(parts), '--save-path', savePath || '',
       '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
     ];
 

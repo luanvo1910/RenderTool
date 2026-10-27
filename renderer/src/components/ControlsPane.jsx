@@ -1,5 +1,6 @@
 import React from 'react';
 import QueueManager from './QueueManager';
+import LocalSourcePanel from './LocalSourcePanel';
 
 function ControlsPane(props) {
   const { 
@@ -31,19 +32,56 @@ function ControlsPane(props) {
     hasError,
     onRetryFirst,
     onSkipFirst,
+    sourceMode,
+    onSourceModeChange,
+    localQueue,
+    onAddLocalVideos,
+    onLocalQueueChange,
+    thumbnailFile,
+    onPickThumbnail,
+    onClearThumbnail,
   } = props;
+
+  const isLocal = sourceMode === 'local';
   
   return (
     <div className="controls-pane">
       <h2>Bảng điều khiển</h2>
-      
-      <QueueManager
-        queue={urlQueue || []}
-        onQueueChange={onQueueChange || (() => {})}
-        isRendering={isRendering}
-        isPaused={isPaused}
-        disabled={isDownloadingUpdate || isUpdateAvailable}
-      />
+
+      <div className="control-group">
+        <label htmlFor="source-mode">Nguồn video:</label>
+        <select
+          id="source-mode"
+          value={sourceMode}
+          onChange={onSourceModeChange}
+          disabled={isRendering || isDownloadingUpdate}
+        >
+          <option value="link">Link YouTube</option>
+          <option value="local">Video và ảnh có sẵn trên máy</option>
+        </select>
+      </div>
+
+      {isLocal ? (
+        <LocalSourcePanel
+          videos={localQueue || []}
+          thumbnail={thumbnailFile}
+          isRendering={isRendering}
+          isPaused={isPaused}
+          disabled={isDownloadingUpdate || isUpdateAvailable}
+          onAddVideos={onAddLocalVideos}
+          onVideosChange={onLocalQueueChange || (() => {})}
+          onPickThumbnail={onPickThumbnail}
+          onClearThumbnail={onClearThumbnail}
+        />
+      ) : (
+        <QueueManager
+          queue={urlQueue || []}
+          onQueueChange={onQueueChange || (() => {})}
+          isRendering={isRendering}
+          isPaused={isPaused}
+          disabled={isDownloadingUpdate || isUpdateAvailable}
+        />
+      )}
       
       <div className="control-group">
         <label htmlFor="split-mode">Phương thức chia video:</label>
@@ -75,7 +113,7 @@ function ControlsPane(props) {
         </div>
       </div>
 
-      <div className="control-group">
+      {!isLocal && <div className="control-group">
         <label>Quản lý Cookies:</label>
         <div className="button-group">
             <button onClick={onUpdateCookies} disabled={isRendering || isDownloadingUpdate} style={{backgroundColor: '#28a745', color: '#fff'}}>
@@ -85,7 +123,7 @@ function ControlsPane(props) {
         <p style={{fontSize: '12px', color: '#666', marginTop: '5px'}}>
           Chọn file cookies.txt (định dạng Netscape) từ profile đã đăng nhập
         </p>
-      </div>
+      </div>}
 
       <div className="control-group">
         <label className="checkbox-label">
@@ -167,14 +205,14 @@ function ControlsPane(props) {
               disabled={isDownloadingUpdate || isUpdateAvailable}
               style={{ backgroundColor: '#17a2b8', color: '#fff' }}
             >
-              Thử lại link đầu
+              {isLocal ? 'Thử lại video đầu' : 'Thử lại link đầu'}
             </button>
             <button
               onClick={onSkipFirst}
               disabled={isDownloadingUpdate || isUpdateAvailable}
               style={{ backgroundColor: '#dc3545', color: '#fff' }}
             >
-              Bỏ qua link đầu
+              {isLocal ? 'Bỏ qua video đầu' : 'Bỏ qua link đầu'}
             </button>
           </>
         )}
