@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--source", type=str, default="link", choices=["link", "local"])
     parser.add_argument("--video-path", type=str, default="")
     parser.add_argument("--thumbnail-path", type=str, default="")
+    parser.add_argument("--speed", type=str, default="1")
     args = parser.parse_args()
     
     if args.export_cookies:
@@ -53,6 +54,7 @@ def main():
                 args.encoder,
                 args.resources_path,
                 args.user_data_path,
+                args.speed,
             )
             sys.exit(0)
         except Exception:
@@ -73,6 +75,7 @@ def main():
             args.encoder,
             args.resources_path,
             args.user_data_path,
+            args.speed,
         )
         sys.exit(0)
     except Exception:

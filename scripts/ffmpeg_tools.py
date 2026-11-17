@@ -127,7 +127,51 @@ def probe_video(ffprobe_path, video_path):
     return duration, has_audio
 
 
-def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_path, audio_label="0:a", audio_start=None):
+def item_flip_chain(flip):
+    """hflip/vflip for one canvas item."""
+    parts = []
+    if flip in ("horizontal", "both"):
+        parts.append("hflip")
+    if flip in ("vertical", "both"):
+        parts.append("vflip")
+    return ",".join(parts)
+
+
+def video_speed_prefix(speed):
+    if abs(speed - 1.0) > 0.001:
+        return f"setpts=PTS/{speed:.4f},"
+    return ""
+
+
+def audio_speed_filter(speed):
+    """atempo chain. Each atempo stage only accepts 0.5–2.0."""
+    if abs(speed - 1.0) <= 0.001:
+        return ""
+    factors = []
+    remaining = float(speed)
+    while remaining > 2.0 + 1e-6:
+        factors.append(2.0)
+        remaining /= 2.0
+    while remaining < 0.5 - 1e-6:
+        factors.append(0.5)
+        remaining /= 0.5
+    factors.append(min(2.0, max(0.5, remaining)))
+    return ",".join(f"atempo={factor:.4f}" for factor in factors)
+
+
+def build_ffmpeg_filter(
+    layout,
+    input_map,
+    start,
+    duration,
+    part_num,
+    resources_path,
+    audio_label="0:a",
+    audio_start=None,
+    speed=1.0,
+    audio_duration=None,
+    apply_audio_speed=True,
+):
     """Generate ffmpeg filter_complex for overlay + text."""
     layout.sort(key=lambda x: int(x.get("zIndex", 0)))
     filters, last_stream = ["color=s=720x1280:c=black[canvas]"], "canvas"
@@ -143,13 +187,15 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
         y = item.get("y", 0)
         scaled_stream, output_stream = f"s{overlay_count}", f"bg{overlay_count + 1}"
         scale_filter = f"scale={w}:{h},setsar=1"
+        flip_chain = item_flip_chain(item.get("flip"))
+        flip_suffix = f",{flip_chain}" if flip_chain else ""
         if item["type"] == "video":
             filters.append(
                 f"[{input_index}:v]trim=start={start}:duration={duration},"
-                f"setpts=PTS-STARTPTS,{scale_filter}[{scaled_stream}]"
+                f"setpts=PTS-STARTPTS,{video_speed_prefix(speed)}{scale_filter}{flip_suffix}[{scaled_stream}]"
             )
         else:
-            filters.append(f"[{input_index}:v]{scale_filter}[{scaled_stream}]")
+            filters.append(f"[{input_index}:v]{scale_filter}{flip_suffix}[{scaled_stream}]")
         filters.append(f"[{last_stream}][{scaled_stream}]overlay={x}:{y}[{output_stream}]")
         last_stream, overlay_count = output_stream, overlay_count + 1
 
@@ -212,7 +258,12 @@ def build_ffmpeg_filter(layout, input_map, start, duration, part_num, resources_
     else:
         filters.append("[canvas]copy[final_v]")
     trim_start = start if audio_start is None else audio_start
-    filters.append(f"[{audio_label}]atrim=start={trim_start}:duration={duration},asetpts=PTS-STARTPTS[final_a]")
+    heard_duration = duration if audio_duration is None else audio_duration
+    audio_chain = f"[{audio_label}]atrim=start={trim_start}:duration={heard_duration},asetpts=PTS-STARTPTS"
+    speed_filter = audio_speed_filter(speed) if apply_audio_speed else ""
+    if speed_filter:
+        audio_chain += f",{speed_filter}"
+    filters.append(f"{audio_chain}[final_a]")
     return ";".join(filters), "final_v"
 
 

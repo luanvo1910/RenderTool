@@ -8,6 +8,7 @@ function ControlsPane(props) {
     log, isRendering,
     statusText, progress,
     encoder, onEncoderChange,
+    playbackSpeed, onPlaybackSpeedChange,
     onRunRender, onAddImage, onAddText, onBrowse, onReset,
     onOpenLogModal,
     splitMode, onSplitModeChange,
@@ -103,6 +104,21 @@ function ControlsPane(props) {
           {splitMode === 'duration' ? 'Số phần TỐI ĐA:' : 'Chia thành (Số phần):'}
         </label>
         <input type="number" id="parts-input" ref={refs.partsInputRef} defaultValue="10" min="1" disabled={isRendering || isDownloadingUpdate} />
+      </div>
+
+      <div className="control-group">
+        <label htmlFor="speed-input">Tốc độ video:</label>
+        <input
+          type="number"
+          id="speed-input"
+          min="0.25"
+          max="4"
+          step="0.05"
+          value={playbackSpeed}
+          onChange={onPlaybackSpeedChange}
+          disabled={isRendering || isDownloadingUpdate}
+        />
+        <p className="local-hint">1 là bình thường, 2 là nhanh gấp đôi. Thời lượng mỗi phần là độ dài file xuất ra.</p>
       </div>
 
       <div className="control-group">

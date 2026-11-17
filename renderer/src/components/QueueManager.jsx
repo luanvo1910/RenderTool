@@ -58,7 +58,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
             disabled={disabled || (isRendering && !isPaused)}
             title="Xóa tất cả"
           >
-            🗑️ Xóa hết
+            Xóa hết
           </button>
         )}
       </div>
@@ -84,7 +84,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
           onClick={handleAddUrl}
           disabled={disabled || !newUrl.trim()}
         >
-          ➕ Thêm
+          Thêm
         </button>
       </div>
 
@@ -105,7 +105,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
                   disabled={disabled || (isRendering && !isPaused) || index === 0}
                   title="Lên trên"
                 >
-                  ⬆️
+                  ↑
                 </button>
                 <button
                   className="queue-action-btn"
@@ -113,7 +113,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
                   disabled={disabled || (isRendering && !isPaused) || index === queue.length - 1}
                   title="Xuống dưới"
                 >
-                  ⬇️
+                  ↓
                 </button>
                 <button
                   className="queue-action-btn queue-delete-btn"
@@ -121,7 +121,7 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
                   disabled={disabled || (isRendering && !isPaused)}
                   title="Xóa"
                 >
-                  ❌
+                  ×
                 </button>
               </div>
             </div>

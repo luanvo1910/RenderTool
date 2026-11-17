@@ -21,6 +21,14 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
     interact('.edit-item').unset();
     interact('#element-properties').unset();
 
+    const withFlip = (target, x, y) => {
+      const flip = target.getAttribute("data-flip") || "none";
+      const scaleX = flip === "horizontal" || flip === "both" ? -1 : 1;
+      const scaleY = flip === "vertical" || flip === "both" ? -1 : 1;
+      const scale = scaleX === 1 && scaleY === 1 ? "" : ` scale(${scaleX}, ${scaleY})`;
+      return `translate(${x}px, ${y}px)${scale}`;
+    };
+
     const readTranslate = (target) => {
       const attrX = target.getAttribute("data-x");
       const attrY = target.getAttribute("data-y");
@@ -42,7 +50,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
             const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
             const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
             
-            target.style.transform = `translate(${x}px, ${y}px)`;
+            target.style.transform = withFlip(target, x, y);
 
             target.setAttribute("data-x", x);
             target.setAttribute("data-y", y);
@@ -110,7 +118,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
 
             x += event.deltaRect.left;
             y += event.deltaRect.top;
-            target.style.transform = `translate(${x}px, ${y}px)`;
+            target.style.transform = withFlip(target, x, y);
 
             target.setAttribute("data-x", x);
             target.setAttribute("data-y", y);
@@ -157,7 +165,7 @@ const EditorPane = forwardRef(function EditorPane(props, ref) {
     const target = e.target.closest(".edit-item");
     if (target) {
       onElementSelect(target.id);
-      window.electronAPI.showContextMenu(target.id, target.dataset.type);
+      window.electronAPI.showContextMenu(target.id, target.dataset.type, target.dataset.flip || "none");
     }
   };
 

@@ -28,6 +28,33 @@ def fetch_video_metadata(url, cookies_path, resources_path):
     return fetch_video_metadata_with_ytdlp(url, resources_path, cookies_path)
 
 
+def normalize_speed(speed):
+    try:
+        speed = float(speed)
+    except (TypeError, ValueError):
+        speed = 1.0
+    if speed <= 0:
+        speed = 1.0
+    return min(4.0, max(0.25, speed))
+
+
+def plan_parts(total_duration, num_parts, part_duration, speed):
+    """Split on the source timeline. part_duration is the output length of each part."""
+    speed = normalize_speed(speed)
+    try:
+        requested_output = float(part_duration)
+    except (TypeError, ValueError):
+        requested_output = 0.0
+    if requested_output <= 0:
+        actual_num_parts, source_part = resolve_split(total_duration, num_parts, 0)
+        output_part = source_part / speed
+    else:
+        output_timeline = total_duration / speed
+        actual_num_parts, output_part = resolve_split(output_timeline, num_parts, requested_output)
+        source_part = output_part * speed
+    return actual_num_parts, source_part, output_part, speed
+
+
 def resolve_split(total_duration, num_parts, part_duration):
     try:
         part_duration = float(part_duration)
@@ -60,10 +87,16 @@ def render_parts(
     output_dir,
     temp_dir,
     has_audio=True,
+    speed=1.0,
+    source_part_duration=None,
+    output_part_duration=None,
 ):
+    speed = normalize_speed(speed)
+    source_len = float(part_duration if source_part_duration is None else source_part_duration)
+    output_len = float(part_duration if output_part_duration is None else output_part_duration)
     for i in range(num_parts):
         part_num = i + 1
-        start_time = i * part_duration
+        start_time = i * source_len
         output_path = os.path.join(output_dir, f"{sanitized_title}_Part_{part_num}.mp4")
         print(f"STATUS: Render Part {part_num}/{num_parts}...", flush=True)
         cmd = [
@@ -88,27 +121,34 @@ def render_parts(
 
         audio_label = "0:a"
         audio_start = start_time
+        audio_duration = source_len
+        apply_audio_speed = True
         if not has_audio:
             cmd += [
                 "-f",
                 "lavfi",
                 "-t",
-                str(part_duration),
+                str(output_len),
                 "-i",
                 "anullsrc=channel_layout=stereo:sample_rate=44100",
             ]
             audio_label = f"{image_index}:a"
             audio_start = 0
+            audio_duration = output_len
+            apply_audio_speed = False
 
         filter_complex, final_video_stream = build_ffmpeg_filter(
             layout,
             input_map,
             start_time,
-            part_duration,
+            source_len,
             part_num,
             resources_path,
             audio_label=audio_label,
             audio_start=audio_start,
+            speed=speed,
+            audio_duration=audio_duration,
+            apply_audio_speed=apply_audio_speed,
         )
         cmd += ["-filter_complex", filter_complex, "-map", f"[{final_video_stream}]", "-map", "[final_a]"]
         if "nvenc" in encoder:
@@ -121,14 +161,14 @@ def render_parts(
             cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-threads", "4"]
         cmd += ["-c:a", "aac", "-b:a", "192k", "-r", "30", "-shortest", output_path]
         print(f"STATUS: Khởi tạo FFMPEG cho Part {part_num} (có thể mất vài phút)...", flush=True)
-        run_command_with_live_output(cmd, total_duration=part_duration)
+        run_command_with_live_output(cmd, total_duration=output_len)
         print(f"RESULT:{output_path}", flush=True)
 
     print("STATUS: Hoàn tất tất cả các phần!", flush=True)
     print("LINK_SUCCESS", flush=True)
 
 
-def process_video(url, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path):
+def process_video(url, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path, speed=1):
     if not ensure_yt_dlp():
         raise Exception("Không thể chuẩn bị yt-dlp")
     with open(layout_file, "r", encoding="utf-8") as f:
@@ -163,7 +203,8 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         if not total_duration:
             raise Exception("Could not get video duration.")
         sanitized_title = sanitize_filename(title)
-        actual_num_parts, part_duration = resolve_split(total_duration, num_parts, part_duration)
+        actual_num_parts, source_part, output_part, speed = plan_parts(total_duration, num_parts, part_duration, speed)
+        print(f"STATUS: Tốc độ: {speed:g}x", flush=True)
 
         print("STATUS: Tải video chính (theo downloader)...", flush=True)
         main_video_path = os.path.join(temp_dir, f"{video_id}.mp4")
@@ -197,6 +238,9 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
             output_dir,
             temp_dir,
             has_audio=True,
+            speed=speed,
+            source_part_duration=source_part,
+            output_part_duration=output_part,
         )
     except Exception as e:
         error_msg = str(e)
@@ -213,7 +257,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
                 print(f"WARNING: Không thể xóa thư mục tạm: {e}", flush=True)
 
 
-def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path):
+def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path, speed=1):
     """Cắt video có sẵn trên máy và gắn ảnh thumbnail có sẵn, không tải từ link."""
     with open(layout_file, "r", encoding="utf-8") as f:
         layout = json.load(f)
@@ -236,7 +280,8 @@ def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_d
         total_duration, has_audio = probe_video(ffprobe_path, video_path)
         title = os.path.splitext(os.path.basename(video_path))[0]
         sanitized_title = sanitize_filename(title) or "video"
-        actual_num_parts, part_duration = resolve_split(total_duration, num_parts, part_duration)
+        actual_num_parts, source_part, output_part, speed = plan_parts(total_duration, num_parts, part_duration, speed)
+        print(f"STATUS: Tốc độ: {speed:g}x", flush=True)
         if not has_audio:
             print("STATUS: Video không có tiếng. Sẽ xuất audio im lặng.", flush=True)
 
@@ -254,6 +299,9 @@ def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_d
             output_dir,
             temp_dir,
             has_audio=has_audio,
+            speed=speed,
+            source_part_duration=source_part,
+            output_part_duration=output_part,
         )
     except Exception as e:
         error_msg = str(e)

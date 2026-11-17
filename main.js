@@ -133,11 +133,29 @@ ipcMain.handle('fonts:get', async () => {
   return await loadFonts();
 });
 
-ipcMain.on('show-context-menu', (event, { elementId, elementType }) => {
+ipcMain.on('show-context-menu', (event, { elementId, elementType, flip }) => {
     const commands = [
       { label: 'Đưa lên trên 1 lớp', click: () => sendCommand('bring-forward', elementId) },
       { label: 'Đưa xuống dưới 1 lớp', click: () => sendCommand('send-backward', elementId) },
     ];
+    if (elementType === 'image' || elementType === 'video' || elementType === 'thumbnail') {
+      const currentFlip = flip || 'none';
+      const flippedX = currentFlip === 'horizontal' || currentFlip === 'both';
+      const flippedY = currentFlip === 'vertical' || currentFlip === 'both';
+      commands.push({ type: 'separator' });
+      commands.push({
+        label: 'Lật ngang',
+        type: 'checkbox',
+        checked: flippedX,
+        click: () => sendCommand('flip-horizontal', elementId),
+      });
+      commands.push({
+        label: 'Lật dọc',
+        type: 'checkbox',
+        checked: flippedY,
+        click: () => sendCommand('flip-vertical', elementId),
+      });
+    }
     if (elementType === 'image' || (elementType === 'text' && elementId !== 'text-placeholder')) {
       commands.push({ type: 'separator' });
       commands.push({ label: 'Xóa đối tượng', click: () => sendCommand('delete-element', elementId) });
@@ -293,7 +311,7 @@ ipcMain.handle('cookies:import-from-edge', async () => {
 // Store active processes for cleanup
 const activeProcesses = new Map();
 
-ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder, source, videoPath, thumbnailPath }) => {
+ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, savePath, layout, encoder, source, videoPath, thumbnailPath, speed }) => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
     const pythonScriptPath = app.isPackaged
@@ -322,7 +340,8 @@ ipcMain.on('video:runProcessWithLayout', (event, { url, parts, partDuration, sav
       '--video-path', videoPath || '',
       '--thumbnail-path', thumbnailPath || '',
       '--parts', String(parts), '--save-path', savePath || '',
-      '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder
+      '--part-duration', String(partDuration), '--layout-file', layoutFilePath, '--encoder', encoder,
+      '--speed', String(speed || 1)
     ];
 
     const commandToRun = 'py';

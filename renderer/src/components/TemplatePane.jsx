@@ -35,17 +35,9 @@ function TemplatePane({ templates, onSave, onLoad, onDelete }) {
         <input
           type="text"
           id="template-name-input"
+          className="template-name-input"
           ref={templateNameInputRef}
-          style={{
-            width: '77%',
-            padding: '8px',
-            backgroundColor: 'var(--tertiary-bg)',
-            border: '1px solid var(--border-color)',
-            color: 'var(--primary-text)',
-            borderRadius: '4px',
-            boxSizing: 'border-box',
-          }}
-          placeholder="Nhập tên mẫu để lưu..."
+          placeholder="Tên mẫu"
         />
 
         <button id="saveTemplateButton" onClick={handleSave}>Lưu</button>

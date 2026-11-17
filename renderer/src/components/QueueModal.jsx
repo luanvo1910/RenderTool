@@ -163,7 +163,7 @@ function QueueModal({
               onClick={handleAddUrl}
               disabled={disabled || !newUrl.trim()}
             >
-              ➕ Thêm
+              Thêm
             </button>
           </div>
 
@@ -174,7 +174,7 @@ function QueueModal({
                 onClick={handleClearAll}
                 disabled={disabled || (isRendering && !isPaused)}
               >
-                🗑️ Xóa hết
+                Xóa hết
               </button>
             </div>
           )}

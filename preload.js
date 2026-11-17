@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process:progress', listener);
     return () => ipcRenderer.removeListener('process:progress', listener);
   },
-  showContextMenu: (elementId, elementType) => ipcRenderer.send('show-context-menu', { elementId, elementType }),
+  showContextMenu: (elementId, elementType, flip) => ipcRenderer.send('show-context-menu', { elementId, elementType, flip }),
   onContextMenuCommand: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('context-menu-command', listener);

@@ -2,57 +2,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TemplatePane from './components/TemplatePane';
 import EditorPane from './components/EditorPane';
 import ControlsPane from './components/ControlsPane';
-import './App.css';
-
-const VIDEO_WIDTH = 720;
-const VIDEO_HEIGHT = 1280; // Tỉ lệ 9:16 (720:1280 = 9:16)
-const defaultTextStyle = {
-  fontFamily: 'arial.ttf', 
-  reactFontSize: 70,
-  fontRenderScale: 1.0,
-  fontColor: '#FFFFFF',
-  isBold: false,
-  isItalic: false,
-  outlineColor: '#000000',
-  outlineWidth: 2,
-  shadowColor: '#000000',
-  shadowDepth: 2,
-  boxColor: '#000000',
-  boxOpacity: 0.5,
-  boxPadding: 10,
-};
-
-const initialElements = [
-  { 
-    id: 'video-placeholder', type: 'video', zIndex: 1, source: null,
-    // Giá trị theo VIDEO_WIDTH (720x1280)
-    width: 600, height: 400, top: 450, left: 60, transformX: 0, transformY: 0
-  },
-  { 
-    id: 'thumbnail-placeholder', type: 'thumbnail', zIndex: 2, source: null,
-    // Giá trị theo VIDEO_WIDTH (720x1280)
-    width: 600, height: 400, top: 20, left: 60, transformX: 0, transformY: 0
-  },
-  { 
-    id: 'text-placeholder', type: 'text', zIndex: 3, content: "Part ...", style: { ...defaultTextStyle },
-    // Giá trị theo VIDEO_WIDTH (720x1280)
-    width: 600, height: 150, top: 900, left: 60, transformX: 0, transformY: 0
-  },
-];
-
-function LogModal({ log, onClose }) {
-  return (
-    <div className="log-modal-overlay" onClick={onClose}>
-      <div className="log-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="log-modal-header">
-          <h3>Chi tiết Nhật ký xử lý</h3>
-          <button className="close-btn" onClick={onClose}>Đóng</button>
-        </div>
-        <pre className="log-modal-body">{log}</pre>
-      </div>
-    </div>
-  );
-}
+import LogModal from './components/LogModal';
+import { VIDEO_WIDTH, VIDEO_HEIGHT, defaultTextStyle, initialElements } from './constants/editor';
 
 function App() {
   const [elements, setElements] = useState(initialElements);
@@ -62,6 +13,7 @@ function App() {
   const [selectedElementId, setSelectedElementId] = useState(null);
   const [systemFonts, setSystemFonts] = useState([]);
   const [encoder, setEncoder] = useState('libx264');
+  const [playbackSpeed, setPlaybackSpeed] = useState('1');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [isCookieRequired, setIsCookieRequired] = useState(false);
   const [statusText, setStatusText] = useState('Sẵn sàng');
@@ -142,13 +94,13 @@ function App() {
       ? elements 
       : elements.filter(el => el.id !== 'text-placeholder');
     return filteredElements.map(elementInfo => {
-      const { id, type, zIndex, source, content, style, aspectRatio } = elementInfo;
+      const { id, type, zIndex, source, content, style, aspectRatio, flip } = elementInfo;
       const { width, height, top, left, transformX, transformY } = elementInfo;
       if (!id || !width || !height) return null; 
       // Các giá trị trong state (left, top, width, height, transformX, transformY) 
       // đã là giá trị gốc theo VIDEO_WIDTH (720x1280), không cần scale nữa
       const itemData = {
-        id, type, zIndex, source, content, aspectRatio,
+        id, type, zIndex, source, content, aspectRatio, flip: flip || 'none',
         x: Math.round(left + (transformX || 0)),
         y: Math.round(top + (transformY || 0)),
         width: Math.round(width),
@@ -185,9 +137,10 @@ function App() {
       splitMode,
       hasError,
       encoder,
+      playbackSpeed,
     };
     layoutRef.current = captureLayoutData();
-  }, [isRendering, urlQueue, localQueue, sourceMode, thumbnailFile, encoder, isPaused, splitMode, hasError, captureLayoutData]);
+  }, [isRendering, urlQueue, localQueue, sourceMode, thumbnailFile, encoder, playbackSpeed, isPaused, splitMode, hasError, captureLayoutData]);
 
 
   useEffect(() => {
@@ -495,6 +448,7 @@ function App() {
       savePath: savePathInputRef.current.value,
       layout: layoutRef.current, // <<< SỬA LỖI 2: Đọc layout từ ref
       encoder: state.encoder || encoder,
+      speed: Number(state.playbackSpeed) > 0 ? Number(state.playbackSpeed) : 1,
     });
   }, [encoder]);
 
@@ -558,7 +512,25 @@ function App() {
       )
     );
   };
+  const nextFlip = (current, action) => {
+    const flip = current || 'none';
+    const horizontal = flip === 'horizontal' || flip === 'both';
+    const vertical = flip === 'vertical' || flip === 'both';
+    const nextHorizontal = action === 'flip-horizontal' ? !horizontal : horizontal;
+    const nextVertical = action === 'flip-vertical' ? !vertical : vertical;
+    if (nextHorizontal && nextVertical) return 'both';
+    if (nextHorizontal) return 'horizontal';
+    if (nextVertical) return 'vertical';
+    return 'none';
+  };
+
   const handleLayerAction = (action, elementId) => {
+    if (action === 'flip-horizontal' || action === 'flip-vertical') {
+      setElements(prev => prev.map(el => (
+        el.id === elementId ? { ...el, flip: nextFlip(el.flip, action) } : el
+      )));
+      return;
+    }
     setElements(currentElements => {
       const newElements = [...currentElements].sort((a, b) => a.zIndex - b.zIndex);
       const currentIndex = newElements.findIndex(el => el.id === elementId);
@@ -674,6 +646,7 @@ function App() {
         content: itemData.content, 
         style: restoredStyle,
         aspectRatio: itemData.aspectRatio || null,
+        flip: itemData.flip || 'none',
         width, height, top, left, transformX, transformY,
       };
     });
@@ -830,10 +803,13 @@ function App() {
     // previewScale để scale từ VIDEO_WIDTH (gốc) lên canvas (hiển thị)
     const previewScale = canvasWidth / VIDEO_WIDTH;
     return sortedElements.map(elementInfo => {
-      const { id, type, zIndex, source, style, content } = elementInfo;
+      const { id, type, zIndex, source, style, content, flip } = elementInfo;
       const { width, height, top, left, transformX, transformY, aspectRatio } = elementInfo;
       const isSelected = selectedElementId === id;
       const classNames = `edit-item ${type}-item ${isSelected ? 'selected' : ''} ${type === 'image' ? 'custom-image' : ''}`;
+      const flipX = flip === 'horizontal' || flip === 'both' ? -1 : 1;
+      const flipY = flip === 'vertical' || flip === 'both' ? -1 : 1;
+      const flipScale = flipX === 1 && flipY === 1 ? '' : ` scale(${flipX}, ${flipY})`;
       
       // Scale tất cả kích thước và vị trí theo previewScale
       const scaledWidth = width * previewScale;
@@ -849,7 +825,7 @@ function App() {
         height: `${scaledHeight}px`,
         top: `${scaledTop}px`,
         left: `${scaledLeft}px`,
-        transform: `translate(${scaledTransformX}px, ${scaledTransformY}px)`
+        transform: `translate(${scaledTransformX}px, ${scaledTransformY}px)${flipScale}`
       };
       
       let pStyle = {}; 
@@ -891,6 +867,7 @@ function App() {
           className={classNames} style={elementStyle}
           onClick={(e) => { e.stopPropagation(); handleElementSelect(id); }}
           data-aspect-ratio={aspectRatio || 0}
+          data-flip={flip || 'none'}
         >
           {(type === 'text' || !source) && (
             <p style={pStyle}>{content ? content : type.toUpperCase()}</p>
@@ -912,7 +889,17 @@ function App() {
   const controlRefs = { durationInputRef, partsInputRef, savePathInputRef, logOutputRef };
 
   return (
-    <div className="app-container">
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="brand">
+          <span className="brand-mark">R</span>
+          <div>
+            <strong>RenderTool</strong>
+            <span>Cắt và dựng video</span>
+          </div>
+        </div>
+      </header>
+      <div className="app-container">
       {isLogModalOpen && <LogModal log={fullLogRef.current} onClose={() => setIsLogModalOpen(false)} />}
       {isCookieRequired && (
         <div className="cookie-modal-overlay">
@@ -954,6 +941,8 @@ function App() {
         onReset={handleReset}
         encoder={encoder}
         onEncoderChange={(e) => setEncoder(e.target.value)}
+        playbackSpeed={playbackSpeed}
+        onPlaybackSpeedChange={(e) => setPlaybackSpeed(e.target.value)}
         onOpenLogModal={() => setIsLogModalOpen(true)}
         
         splitMode={splitMode}
@@ -985,6 +974,7 @@ function App() {
         onRetryFirst={handleRetryFirst}
         onSkipFirst={handleSkipFirst}
       />
+      </div>
     </div>
   );
 }
