@@ -1,3 +1,5 @@
+import QueueList from './QueueList';
+
 function fileName(filePath) {
   const parts = String(filePath).split(/[/\\]/);
   return parts[parts.length - 1] || filePath;
@@ -49,31 +51,22 @@ function LocalSourcePanel({
         Chọn video
       </button>
 
-      <div className="queue-list">
-        {videos.length === 0 ? (
-          <div className="queue-empty">Chưa chọn video nào</div>
-        ) : (
-          videos.map((videoPath, index) => (
-            <div key={`${videoPath}-${index}`} className="queue-item">
-              <div className="queue-item-number">{index + 1}</div>
-              <div className="queue-item-url" title={videoPath}>
-                {fileName(videoPath)}
-              </div>
-              <div className="queue-item-actions">
-                <button className="queue-action-btn" onClick={() => handleMove(index, -1)} disabled={locked || index === 0} title="Lên trên">
-                  ↑
-                </button>
-                <button className="queue-action-btn" onClick={() => handleMove(index, 1)} disabled={locked || index === videos.length - 1} title="Xuống dưới">
-                  ↓
-                </button>
-                <button className="queue-action-btn queue-delete-btn" onClick={() => handleRemove(index)} disabled={locked} title="Xóa">
-                  ×
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      {videos.length === 0 ? (
+        <div className="queue-empty">Chưa chọn video nào</div>
+      ) : (
+        <QueueList
+          entries={videos.map((videoPath, index) => ({
+            key: `${index}-${videoPath}`,
+            index,
+            label: fileName(videoPath),
+            title: videoPath,
+          }))}
+          locked={locked}
+          rendering={isRendering && !isPaused}
+          onRemove={handleRemove}
+          onMove={handleMove}
+        />
+      )}
 
       <div className="local-thumb-block">
         <h3>Ảnh thay thumbnail</h3>

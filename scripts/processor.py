@@ -1,7 +1,9 @@
 import json
 import math
 import os
+import shutil
 import sys
+import uuid
 
 from cookies_handler import export_cookies_from_edge
 from downloader_flow import download_video_with_ytdlp, fetch_video_metadata_with_ytdlp
@@ -18,6 +20,21 @@ from utils_common import (
     sanitize_filename,
     validate_netscape_cookie_file,
 )
+
+
+def create_job_temp_dir(user_data_path):
+    temp_dir = os.path.join(user_data_path, "temp_files", uuid.uuid4().hex)
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
+
+
+def cleanup_job_temp_dir(temp_dir):
+    print("STATUS: Dọn dẹp file tạm...", flush=True)
+    if temp_dir and os.path.isdir(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as exc:
+            print(f"WARNING: Không thể xóa thư mục tạm: {exc}", flush=True)
 
 
 def fetch_video_metadata(url, cookies_path, resources_path):
@@ -175,9 +192,8 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         layout = json.load(f)
 
     output_dir = save_path or os.path.join(user_data_path, "output")
-    temp_dir = os.path.join(user_data_path, "temp_files")
+    temp_dir = create_job_temp_dir(user_data_path)
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(temp_dir, exist_ok=True)
 
     ffmpeg_path = get_executable_path("ffmpeg", resources_path)
     user_cookie_path = os.path.join(user_data_path, "cookies.txt")
@@ -247,14 +263,7 @@ def process_video(url, num_parts, save_path, part_duration, layout_file, encoder
         print(f"PYTHON_ERROR: {error_msg}", file=sys.stderr, flush=True)
         print(f"LINK_ERROR: {error_msg}", flush=True)
     finally:
-        print("STATUS: Dọn dẹp file tạm...", flush=True)
-        if os.path.exists(temp_dir):
-            try:
-                import shutil
-
-                shutil.rmtree(temp_dir)
-            except Exception as e:
-                print(f"WARNING: Không thể xóa thư mục tạm: {e}", flush=True)
+        cleanup_job_temp_dir(temp_dir)
 
 
 def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_duration, layout_file, encoder, resources_path, user_data_path, speed=1):
@@ -263,9 +272,8 @@ def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_d
         layout = json.load(f)
 
     output_dir = save_path or os.path.join(user_data_path, "output")
-    temp_dir = os.path.join(user_data_path, "temp_files")
+    temp_dir = create_job_temp_dir(user_data_path)
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(temp_dir, exist_ok=True)
 
     ffmpeg_path = get_executable_path("ffmpeg", resources_path)
     ffprobe_path = get_executable_path("ffprobe", resources_path)
@@ -308,12 +316,5 @@ def process_local_video(video_path, thumbnail_path, num_parts, save_path, part_d
         print(f"PYTHON_ERROR: {error_msg}", file=sys.stderr, flush=True)
         print(f"LINK_ERROR: {error_msg}", flush=True)
     finally:
-        print("STATUS: Dọn dẹp file tạm...", flush=True)
-        if os.path.exists(temp_dir):
-            try:
-                import shutil
-
-                shutil.rmtree(temp_dir)
-            except Exception as e:
-                print(f"WARNING: Không thể xóa thư mục tạm: {e}", flush=True)
+        cleanup_job_temp_dir(temp_dir)
 

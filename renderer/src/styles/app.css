@@ -206,9 +206,20 @@ textarea { resize: vertical; min-height: 72px; }
   background: #191c23;
 }
 .queue-manager-header, .log-header, .local-thumb-preview { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.queue-browser { display: flex; flex-direction: column; gap: 8px; }
+.queue-summary { display: flex; flex-direction: column; gap: 2px; }
+.queue-summary strong { font-size: 18px; line-height: 1; }
+.queue-summary span, .queue-filter { color: var(--muted); font-size: 12px; }
+.queue-filter { padding: 7px 10px; }
+.queue-viewport { height: 220px; overflow: auto; border-radius: 8px; }
+.queue-spacer { position: relative; }
+.queue-row { position: absolute; left: 0; right: 0; padding: 2px 0; }
+.queue-row .queue-item { height: 100%; padding: 0 8px; }
+.queue-row .queue-action-btn { padding: 2px 8px; }
+.queue-item.is-active { border-color: var(--accent); }
 .queue-item-number {
-  width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
-  background: #12141a; color: var(--muted); font-size: 12px; flex: none;
+  min-width: 34px; height: 22px; padding: 0 4px; border-radius: 6px; display: grid; place-items: center;
+  background: #12141a; color: var(--muted); font-size: 11px; flex: none;
 }
 .queue-action-btn, .view-log-btn, .local-pick-btn { background: #12141a; color: var(--text); border: 1px solid var(--line); }
 .local-pick-btn { width: 100%; margin-bottom: 10px; }

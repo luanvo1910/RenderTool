@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import QueueList from './QueueList';
 
 function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabled }) {
   const [newUrl, setNewUrl] = useState('');
@@ -88,46 +89,17 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
         </button>
       </div>
 
-      <div className="queue-list">
-        {queue.length === 0 ? (
-          <div className="queue-empty">Chưa có link nào trong hàng chờ</div>
-        ) : (
-          queue.map((url, index) => (
-            <div key={index} className="queue-item">
-              <div className="queue-item-number">{index + 1}</div>
-              <div className="queue-item-url" title={url}>
-                {url.length > 50 ? `${url.substring(0, 50)}...` : url}
-              </div>
-              <div className="queue-item-actions">
-                <button
-                  className="queue-action-btn"
-                  onClick={() => handleMoveUp(index)}
-                  disabled={disabled || (isRendering && !isPaused) || index === 0}
-                  title="Lên trên"
-                >
-                  ↑
-                </button>
-                <button
-                  className="queue-action-btn"
-                  onClick={() => handleMoveDown(index)}
-                  disabled={disabled || (isRendering && !isPaused) || index === queue.length - 1}
-                  title="Xuống dưới"
-                >
-                  ↓
-                </button>
-                <button
-                  className="queue-action-btn queue-delete-btn"
-                  onClick={() => handleRemoveUrl(index)}
-                  disabled={disabled || (isRendering && !isPaused)}
-                  title="Xóa"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      {queue.length === 0 ? (
+        <div className="queue-empty">Chưa có link nào trong hàng chờ</div>
+      ) : (
+        <QueueList
+          entries={queue.map((url, index) => ({ key: `${index}-${url}`, index, label: url, title: url }))}
+          locked={disabled || (isRendering && !isPaused)}
+          rendering={isRendering && !isPaused}
+          onRemove={handleRemoveUrl}
+          onMove={(index, direction) => (direction < 0 ? handleMoveUp(index) : handleMoveDown(index))}
+        />
+      )}
     </div>
   );
 }
